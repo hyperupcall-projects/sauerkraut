@@ -28,26 +28,27 @@ import {
 } from 'h3'
 import mime from 'mime-types'
 
-import { ctx as _ctx } from './rho.config.js'
-import { markedLinks } from './rho.marked.js'
+import { markedLinks } from './marked.js'
 
 export { consola }
+
+const { ctx: _ctx } = await import(path.join(process.cwd(), 'ten.config.js'))
 
 /**
  * @typedef {typeof _ctx} Ctx
  *
  * @typedef {'build' | 'serve' | 'new'} Subcommands
  *
- * @typedef {Object} RhoJsMeta
+ * @typedef {Object} TenJsMeta
  * @property {string} [slug]
  * @property {string} [layout]
  *
- * @typedef {{ slug: string, count: number }[]} RhoJsSlugMapping
+ * @typedef {{ slug: string, count: number }[]} TenJsSlugMapping
  *
- * @typedef {Object} RhoJs
- * @property {() => Promise<RhoJsMeta>} [Meta]
+ * @typedef {Object} TenJs
+ * @property {() => Promise<TenJsMeta>} [Meta]
  * @property {(arg0: Ctx) => Promise<any>} [Header]
- * @property {(arg0: Ctx) => Promise<RhoJsSlugMapping>} [GenerateSlugMapping]
+ * @property {(arg0: Ctx) => Promise<TenJsSlugMapping>} [GenerateSlugMapping]
  * @property {(arg0: Ctx, arg1: { slug?: string, count?: number }) => Promise<any>} [GenerateTemplateVariables]
  *
  * @typedef {Object} Page
@@ -55,7 +56,7 @@ export { consola }
  * @property {string} inputUri
  * @property {string} outputUri
  * @property {string} entrypointUri
- * @property {RhoJs} rhoJs
+ * @property {TenJs} tenJs
  * @property {Record<PropertyKey, any>} parameters
  *
  * @typedef {Object} Frontmatter
@@ -87,6 +88,7 @@ export const MarkdownItInstance = (() => {
 	md.use(markedLinks)
 	return md
 })()
+globalThis.MarkdownItInstance = MarkdownItInstance // TODO
 const /** @type {string[]} */ FileQueue = []
 const /** @type {Map<string, string>} */ ContentMap = new Map()
 const OriginalHandlebarsHelpers = Object.keys(handlebarsImport.helpers)
@@ -165,15 +167,16 @@ async function commandServe(/** @type {Ctx} */ ctx) {
 		'/**',
 		defineEventHandler(async (event) => {
 			try {
-
-				const outputUri = event.path.endsWith('/') ? `${event.path}index.html` : event.path
+				const outputUri = event.path.endsWith('/')
+					? `${event.path}index.html`
+					: event.path
 				const inputUri = ContentMap.get(outputUri)
 
 				setResponseHeaders(event, {
-					"Content-Type": mime.lookup(outputUri) || 'text/html',
-					"Cache-Control": "no-cache",
-					"Expires": "0",
-					"Transfer-Encoding": "chunked"
+					'Content-Type': mime.lookup(outputUri) || 'text/html',
+					'Cache-Control': 'no-cache',
+					Expires: '0',
+					'Transfer-Encoding': 'chunked',
 				})
 
 				if (inputUri) {
@@ -186,9 +189,17 @@ async function commandServe(/** @type {Ctx} */ ctx) {
 					})
 
 					const inputFile = path.join(ctx.defaults.contentDir, inputUri)
-					for await (const page of yieldPagesFromInputFile(ctx, inputFile)) {
-						const rootRelUri = path.relative(ctx.defaults.rootDir, path.join(ctx.defaults.contentDir, page.inputUri))
-						consola.info(`Request (content): ${event.path}  -> ${rootRelUri}`)
+					for await (const page of yieldPagesFromInputFile(
+						ctx,
+						inputFile
+					)) {
+						const rootRelUri = path.relative(
+							ctx.defaults.rootDir,
+							path.join(ctx.defaults.contentDir, page.inputUri)
+						)
+						consola.info(
+							`Request (content): ${event.path}  -> ${rootRelUri}`
+						)
 
 						await handleContentFile(ctx, page, writable2)
 					}
@@ -196,7 +207,10 @@ async function commandServe(/** @type {Ctx} */ ctx) {
 					const readable2 = Readable.from(content)
 					return sendStream(event, readable2)
 				} else {
-					const rootRelUri = path.relative(ctx.defaults.rootDir, path.join(ctx.defaults.staticDir, event.path))
+					const rootRelUri = path.relative(
+						ctx.defaults.rootDir,
+						path.join(ctx.defaults.staticDir, event.path)
+					)
 					consola.info('Request (static):', rootRelUri)
 
 					return serveStatic(event, {
@@ -204,7 +218,9 @@ async function commandServe(/** @type {Ctx} */ ctx) {
 							return fs.readFile(path.join(ctx.defaults.staticDir, id))
 						},
 						async getMeta(id) {
-							const stats = await fs.stat(path.join(ctx.defaults.staticDir, id)).catch(() => null)
+							const stats = await fs
+								.stat(path.join(ctx.defaults.staticDir, id))
+								.catch(() => null)
 
 							if (!stats?.isFile()) {
 								return
@@ -212,15 +228,15 @@ async function commandServe(/** @type {Ctx} */ ctx) {
 
 							return {
 								size: stats.size,
-								mtime: stats.mtimeMs
+								mtime: stats.mtimeMs,
 							}
-						}
+						},
 					})
 				}
 			} catch (err) {
 				console.error(err)
 			}
-		}),
+		})
 	)
 
 	const listener = await listen(toNodeListener(app), {
@@ -246,7 +262,10 @@ export async function commandBuild(/** @type {Ctx} */ ctx) {
 }
 
 async function commandNew(/** @type {Ctx} */ ctx) {
-	const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+	const rl = readline.createInterface({
+		input: process.stdin,
+		output: process.stdout,
+	})
 	rl.on('SIGINT', () => {
 		consola.error('Aborting...')
 		rl.close()
@@ -271,7 +290,7 @@ async function commandNew(/** @type {Ctx} */ ctx) {
 	const markdownFile = path.join(
 		ctx.defaults.contentDir,
 		'posts/drafts',
-		`${slug}/${slug}.md`,
+		`${slug}/${slug}.md`
 	)
 	await fs.mkdir(path.dirname(markdownFile), { recursive: true })
 	await fs.writeFile(
@@ -286,7 +305,7 @@ tags = []
 draft = true
 +++
 
-`,
+`
 	)
 	rl.close()
 	consola.info(`File created at ${markdownFile}`)
@@ -294,7 +313,9 @@ draft = true
 
 async function iterateFileQueueByCallback(
 	/** @type {Ctx} */ ctx,
-	{ onEmptyFileQueue = /** @type {() => void | Promise<void>} */ () => {} } = {},
+	{
+		onEmptyFileQueue = /** @type {() => void | Promise<void>} */ () => {},
+	} = {}
 ) {
 	let lastCallbackWasEmpty = false
 	await cb()
@@ -339,11 +360,19 @@ async function iterateFileQueueByWhileLoop(/** @type {Ctx} */ ctx) {
 }
 
 /** @returns {AsyncGenerator<Page>} */
-async function* yieldPagesFromInputFile(/** @type {Ctx} */ ctx, /** @type {string} */ inputFile) {
+async function* yieldPagesFromInputFile(
+	/** @type {Ctx} */ ctx,
+	/** @type {string} */ inputFile
+) {
 	const inputUri = path.relative(ctx.defaults.contentDir, inputFile)
 	const entrypointUri = await utilGetEntrypointFromInputUri(ctx, inputFile)
-	const rhoJs = await utilExtractRhoJs(ctx, entrypointUri)
-	const outputUri = await convertInputUriToOutputUri(ctx, inputUri, rhoJs, entrypointUri)
+	const tenJs = await utilExtractTenJs(ctx, entrypointUri)
+	const outputUri = await convertInputUriToOutputUri(
+		ctx,
+		inputUri,
+		tenJs,
+		entrypointUri
+	)
 
 	/** @type {Page} */
 	const page = {
@@ -351,16 +380,16 @@ async function* yieldPagesFromInputFile(/** @type {Ctx} */ ctx, /** @type {strin
 		inputUri,
 		outputUri,
 		entrypointUri,
-		rhoJs,
-		parameters: {}
+		tenJs,
+		parameters: {},
 	}
 
-	if (page.rhoJs.GenerateSlugMapping) {
-		const slugMap = (await page.rhoJs.GenerateSlugMapping(ctx)) ?? []
+	if (page.tenJs.GenerateSlugMapping) {
+		const slugMap = (await page.tenJs.GenerateSlugMapping(ctx)) ?? []
 		const originalOutputUri = page.outputUri
 		for (const slug of slugMap) {
 			const data =
-				(await page.rhoJs?.GenerateTemplateVariables?.(ctx, {
+				(await page.tenJs?.GenerateTemplateVariables?.(ctx, {
 					slug: slug.slug,
 					count: slug.count,
 				})) ?? {}
@@ -368,14 +397,15 @@ async function* yieldPagesFromInputFile(/** @type {Ctx} */ ctx, /** @type {strin
 			page.outputUri = path.join(
 				path.dirname(originalOutputUri),
 				slug.slug,
-				'index.html',
+				'index.html'
 			)
 			page.parameters = data
 
 			yield page
 		}
 	} else {
-		const data = (await page.rhoJs?.GenerateTemplateVariables?.(ctx, {})) ?? {}
+		const data =
+			(await page.tenJs?.GenerateTemplateVariables?.(ctx, {})) ?? {}
 		page.parameters = data
 
 		yield page
@@ -396,7 +426,11 @@ async function handleContentFile(
 	}
 }
 
-async function handleEntrypoint(/** @type {Ctx} */ ctx, /** @type {Page} */ page, /** @type {WritableStream} */ outputStream) {
+async function handleEntrypoint(
+	/** @type {Ctx} */ ctx,
+	/** @type {Page} */ page,
+	/** @type {WritableStream} */ outputStream
+) {
 	consola.log(`Processing ${page.entrypointUri}...`)
 	if (
 		// prettier-ignore
@@ -410,7 +444,7 @@ async function handleEntrypoint(/** @type {Ctx} */ ctx, /** @type {Page} */ page
 	} else if (page.entrypointUri.endsWith('.md')) {
 		let markdown = await fs.readFile(
 			path.join(ctx.defaults.contentDir, page.entrypointUri),
-			'utf-8',
+			'utf-8'
 		)
 		const { html, frontmatter } = (() => {
 			let frontmatter = {}
@@ -423,7 +457,7 @@ async function handleEntrypoint(/** @type {Ctx} */ ctx, /** @type {Page} */ page
 				html: MarkdownItInstance.render(markdown),
 				frontmatter: ctx.config.validateFrontmatter(
 					path.join(ctx.defaults.contentDir, page.entrypointUri),
-					frontmatter,
+					frontmatter
 				),
 			}
 		})()
@@ -451,7 +485,7 @@ async function handleEntrypoint(/** @type {Ctx} */ ctx, /** @type {Page} */ page
 	) {
 		let html = await fs.readFile(
 			path.join(ctx.defaults.contentDir, page.entrypointUri),
-			'utf-8',
+			'utf-8'
 		)
 		const template = ctx.singletons.handlebars.compile(html, {
 			noEscape: true,
@@ -460,8 +494,8 @@ async function handleEntrypoint(/** @type {Ctx} */ ctx, /** @type {Page} */ page
 			...page.parameters,
 			__inputUri: page.entrypointUri,
 		})
-		const meta = await page.rhoJs?.Meta?.()
-		const header = await page.rhoJs?.Header?.(ctx)
+		const meta = await page.tenJs?.Meta?.()
+		const header = await page.tenJs?.Header?.(ctx)
 		const layout = await utilExtractLayout(ctx, [
 			meta?.layout,
 			await ctx.config.getLayout(ctx, page),
@@ -483,19 +517,25 @@ async function handleEntrypoint(/** @type {Ctx} */ ctx, /** @type {Page} */ page
 	}
 }
 
-async function handleNonEntrypoint(/** @type {Ctx} */ ctx, /** @type {Page} */ page, /** @type {WritableStream} */ outputStream) {
+async function handleNonEntrypoint(
+	/** @type {Ctx} */ ctx,
+	/** @type {Page} */ page,
+	/** @type {WritableStream} */ outputStream
+) {
 	if (
 		page.inputUri.includes('/_') ||
 		page.inputUri.includes('_/') ||
 		path.parse(page.inputUri).name.endsWith('_') ||
-		page.inputUri.endsWith('.rho.js')
+		page.inputUri.endsWith('.ten.js')
 	) {
 		// Do not copy file.
 	} else if (page.inputUri.includes('/drafts/')) {
 		// Do not copy file.
 		// TODO: This should be replaced with something
 	} else if (page.inputUri.match(/\.[a-zA-Z]+\.js$/)) {
-		throw new Error(`Did you mean to append ".rho.js" for file: ${page.inputFile}?`)
+		throw new Error(
+			`Did you mean to append ".ten.js" for file: ${page.inputFile}?`
+		)
 	} else {
 		// const readable = Readable.toWeb(fss.createReadStream(page.inputFile))
 		// readable.pipeTo(outputStream)
@@ -550,13 +590,18 @@ async function fsRegisterHandlebarsHelpers(/** @type {Ctx} */ ctx) {
 		handlebars.unregisterPartial(partial)
 	}
 	try {
-		for (const partialFilename of await fs.readdir(ctx.defaults.partialsDir)) {
+		for (const partialFilename of await fs.readdir(
+			ctx.defaults.partialsDir
+		)) {
 			const partialContent = await fs.readFile(
 				path.join(ctx.defaults.partialsDir, partialFilename),
-				'utf-8',
+				'utf-8'
 			)
 
-			handlebars.registerPartial(path.parse(partialFilename).name, partialContent)
+			handlebars.registerPartial(
+				path.parse(partialFilename).name,
+				partialContent
+			)
 		}
 	} catch (err) {
 		if (err.code !== 'ENOENT') throw err
@@ -594,8 +639,8 @@ async function addAllContentFilesToFileQueue(/** @type {Ctx} */ ctx) {
 async function convertInputUriToOutputUri(
 	/** @type {Ctx} */ ctx,
 	/** @type {string} */ inputUri,
-	/** @type {RhoJs} */ rhoJs,
-	/** @type {string | null} */ entrypointUri,
+	/** @type {TenJs} */ tenJs,
+	/** @type {string | null} */ entrypointUri
 ) {
 	inputUri = ctx.config.customUriTransform(inputUri)
 
@@ -621,7 +666,7 @@ async function convertInputUriToOutputUri(
 	async function getNewParentDirname() {
 		const inputFile = path.join(ctx.defaults.contentDir, inputUri)
 
-		const meta = await rhoJs?.Meta?.()
+		const meta = await tenJs?.Meta?.()
 		if (meta?.slug) {
 			return meta.slug
 		}
@@ -630,7 +675,7 @@ async function convertInputUriToOutputUri(
 			const frontmatter = await extractContentFileFrontmatter(
 				ctx,
 				inputFile,
-				entrypointUri,
+				entrypointUri
 			)
 			return frontmatter.slug ?? path.basename(path.dirname(inputUri))
 		} else {
@@ -642,7 +687,7 @@ async function convertInputUriToOutputUri(
 async function extractContentFileFrontmatter(
 	/** @type {Ctx} */ ctx,
 	/** @type {string} */ inputFile,
-	/** @type {string} */ entrypointUri,
+	/** @type {string} */ entrypointUri
 ) {
 	if (!inputFile) return {}
 	const entrypointFile = path.join(ctx.defaults.contentDir, entrypointUri)
@@ -663,29 +708,35 @@ async function extractContentFileFrontmatter(
 	return ctx.config.validateFrontmatter(entrypointFile, frontmatter)
 }
 
-async function utilExtractLayout(/** @type {Ctx} */ ctx, /** @type {any[]} */ layouts) {
+async function utilExtractLayout(
+	/** @type {Ctx} */ ctx,
+	/** @type {any[]} */ layouts
+) {
 	for (const layout of layouts) {
 		if (layout instanceof Buffer) {
 			return layout.toString()
 		} else if (typeof layout === 'string') {
-			return await fs.readFile(path.join(ctx.defaults.layoutDir, layout), 'utf-8')
+			return await fs.readFile(
+				path.join(ctx.defaults.layoutDir, layout),
+				'utf-8'
+			)
 		}
 	}
 }
 
-async function utilExtractRhoJs(
+async function utilExtractTenJs(
 	/** @type {Ctx} */ ctx,
-	/** @type {string} */ entrypointUri,
+	/** @type {string} */ entrypointUri
 ) {
 	const entrypointFile = path.join(ctx.defaults.contentDir, entrypointUri)
 
 	try {
 		const javascriptFile = path.join(
 			path.dirname(entrypointFile),
-			path.parse(entrypointFile).base + '.rho.js',
+			path.parse(entrypointFile).base + '.ten.js'
 		)
-		let /** @type {RhoJs} */ rhoJs = await import(javascriptFile)
-		return rhoJs
+		let /** @type {TenJs} */ tenJs = await import(javascriptFile)
+		return tenJs
 	} catch (err) {
 		if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
 	}
@@ -694,7 +745,7 @@ async function utilExtractRhoJs(
 
 async function utilGetEntrypointFromInputUri(
 	/** @type {Ctx} */ ctx,
-	/** @type {string} */ inputFile,
+	/** @type {string} */ inputFile
 ) {
 	const inputUri = path.relative(ctx.defaults.contentDir, inputFile)
 	const dirname = path.basename(path.dirname(inputUri))
@@ -729,5 +780,8 @@ async function utilGetEntrypointFromInputUri(
 }
 
 async function utilFileExists(/** @type {string} */ file) {
-	return await fs.stat(file).then(() => true).catch(() => false)
+	return await fs
+		.stat(file)
+		.then(() => true)
+		.catch(() => false)
 }

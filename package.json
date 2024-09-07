@@ -1,0 +1,24 @@
+{
+	"name": "ten",
+	"version": "0.1.0",
+	"description": "",
+	"main": "index.js",
+	"type": "module",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"keywords": [],
+	"author": "Edwin Kofler <edwin@kofler.dev> (https://edwinkofler.com/)",
+	"license": "MPL-2.0",
+	"dependencies": {
+		"@shikijs/markdown-it": "^1.16.2",
+		"consola": "^3.2.3",
+		"h3": "^1.12.0",
+		"handlebars": "^4.7.8",
+		"listhen": "^1.7.2",
+		"markdown-it": "^14.1.0",
+		"markdown-it-emoji": "^3.0.0",
+		"mime-types": "^2.1.35",
+		"smol-toml": "^1.3.0"
+	}
+}
