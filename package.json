@@ -1,11 +1,11 @@
 {
-	"name": "ten",
+	"name": "@hyperupcall/ten",
 	"version": "0.1.0",
 	"description": "",
 	"main": "index.js",
 	"type": "module",
-	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1"
+	"bin": {
+		"ten": "./bin/ten.js"
 	},
 	"keywords": [],
 	"author": "Edwin Kofler <edwin@kofler.dev> (https://edwinkofler.com/)",
