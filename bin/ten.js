@@ -1,2 +1,6 @@
 #!/usr/bin/env node
-await import('../src/ten.js')
+import { main } from '../src/ten.js'
+
+await main().catch((err) => {
+    console.error(err)
+})

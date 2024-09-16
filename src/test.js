@@ -19,7 +19,6 @@ const Ctx = Object.freeze({
 	},
 	defaults: {
 		rootDir: TestDataDir,
-		buildJsFile: path.join(Dirname, 'ten.js'),
 		cacheFile: path.join(TestDataDir, '.cache/cache.json'),
 		contentDir: path.join(TestDataDir, 'content'),
 		layoutDir: path.join(TestDataDir, 'layouts'),

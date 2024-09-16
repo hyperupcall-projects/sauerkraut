@@ -32,10 +32,17 @@ import { markedLinks } from './marked.js'
 
 export { consola }
 
-const { ctx: _ctx } = await import(path.join(process.cwd(), 'ten.config.js'))
+const Config = await import(path.join(process.cwd(), 'ten.config.js'))
+const Defaults = Config.defaults
+const _ctx = Config.ctx
 
 /**
  * @typedef {typeof _ctx} Ctx
+ *
+ * @typdef {Object} Options
+ * @property {string} command
+ * @property {boolean} clean
+ * @property {boolean} verbose
  *
  * @typedef {'build' | 'serve' | 'new'} Subcommands
  *
@@ -69,8 +76,6 @@ const { ctx: _ctx } = await import(path.join(process.cwd(), 'ten.config.js'))
  * @property {string[]} [tags]
  */
 
-const Filename = new URL(import.meta.url).pathname
-const Dirname = path.dirname(Filename)
 const ShikiInstance = await Shiki({
 	themes: {
 		light: 'github-light',
@@ -88,6 +93,7 @@ export const MarkdownItInstance = (() => {
 	md.use(markedLinks)
 	return md
 })()
+let /** @type {typeof import('handlebars')} */ HandlebarsInstance = /** @type {any} */ (null)
 globalThis.MarkdownItInstance = MarkdownItInstance // TODO
 const /** @type {string[]} */ FileQueue = []
 const /** @type {Map<string, string>} */ ContentMap = new Map()
@@ -105,8 +111,8 @@ if (
 	await main()
 }
 
-async function main() {
-	const helpText = `${path.basename(Filename)} <build | serve | new> [options]
+export async function main() {
+	const helpText = `ten <build | serve | new> [options]
   Options:
     -h, --help
     --clean
@@ -115,21 +121,21 @@ async function main() {
 	const { values, positionals } = util.parseArgs({
 		allowPositionals: true,
 		options: {
-			clean: { type: 'boolean' },
-			verbose: { type: 'boolean' },
-			help: { type: 'boolean', alias: 'h' },
+			clean: { type: 'boolean', default: false },
+			verbose: { type: 'boolean', default: false },
+			help: { type: 'boolean', default: false, alias: 'h' },
 		},
 	})
-	_ctx.options.command = /** @type {Subcommands} */ (positionals[0])
-	_ctx.options.clean = values.clean ?? false
-	_ctx.options.verbose = values.verbose ?? false
 
-	/**
-	 * Variable _ctx is created at top-level for global type-inference, but we pass it
-	 * as a parameter to make testing easier. The top-level variable is prefixed with
-	 * an underscore so it is not accidentally used.
-	 */
-	const ctx = _ctx
+	const ctx = {
+		options: {
+			command: /** @type {Subcommands} */ (positionals[0]),
+			clean: /** @type {boolean} */ (values.clean), // TODO: Boolean not inferred
+			verbose: /** @type {boolean} */ (values.verbose),
+		},
+		handlebarsHelpers: _ctx.handlebarsHelpers,
+		helpers: _ctx.helpers
+	}
 
 	if (!ctx.options.command) {
 		console.error(helpText)
@@ -188,14 +194,14 @@ async function commandServe(/** @type {Ctx} */ ctx) {
 						},
 					})
 
-					const inputFile = path.join(ctx.defaults.contentDir, inputUri)
+					const inputFile = path.join(Defaults.contentDir, inputUri)
 					for await (const page of yieldPagesFromInputFile(
 						ctx,
 						inputFile
 					)) {
 						const rootRelUri = path.relative(
-							ctx.defaults.rootDir,
-							path.join(ctx.defaults.contentDir, page.inputUri)
+							Defaults.rootDir,
+							path.join(Defaults.contentDir, page.inputUri)
 						)
 						consola.info(
 							`Request (content): ${event.path}  -> ${rootRelUri}`
@@ -208,18 +214,18 @@ async function commandServe(/** @type {Ctx} */ ctx) {
 					return sendStream(event, readable2)
 				} else {
 					const rootRelUri = path.relative(
-						ctx.defaults.rootDir,
-						path.join(ctx.defaults.staticDir, event.path)
+						Defaults.rootDir,
+						path.join(Defaults.staticDir, event.path)
 					)
 					consola.info('Request (static):', rootRelUri)
 
 					return serveStatic(event, {
 						getContents(id) {
-							return fs.readFile(path.join(ctx.defaults.staticDir, id))
+							return fs.readFile(path.join(Defaults.staticDir, id))
 						},
 						async getMeta(id) {
 							const stats = await fs
-								.stat(path.join(ctx.defaults.staticDir, id))
+								.stat(path.join(Defaults.staticDir, id))
 								.catch(() => null)
 
 							if (!stats?.isFile()) {
@@ -240,7 +246,7 @@ async function commandServe(/** @type {Ctx} */ ctx) {
 	)
 
 	const listener = await listen(toNodeListener(app), {
-		port: 3001,
+		port: process.env.PORT ?? 3001,
 		showURL: false,
 	})
 	consola.start(`Listening at http://localhost:${listener.address.port}`)
@@ -288,7 +294,7 @@ async function commandNew(/** @type {Ctx} */ ctx) {
 		.replace('T', ' ')
 		.replace(/\.[0-9]+Z$/, 'Z')
 	const markdownFile = path.join(
-		ctx.defaults.contentDir,
+		Defaults.contentDir,
 		'posts/drafts',
 		`${slug}/${slug}.md`
 	)
@@ -322,9 +328,9 @@ async function iterateFileQueueByCallback(
 
 	async function cb() {
 		if (FileQueue.length > 0) {
-			const inputFile = path.join(ctx.defaults.contentDir, FileQueue[0])
+			const inputFile = path.join(Defaults.contentDir, FileQueue[0])
 			for await (const page of yieldPagesFromInputFile(ctx, inputFile)) {
-				const outputUrl = path.join(ctx.defaults.outputDir, page.outputUri)
+				const outputUrl = path.join(Defaults.outputDir, page.outputUri)
 
 				await fs.mkdir(path.dirname(outputUrl), { recursive: true })
 				const outputStream = fss.createWriteStream(outputUrl)
@@ -346,9 +352,9 @@ async function iterateFileQueueByCallback(
 
 async function iterateFileQueueByWhileLoop(/** @type {Ctx} */ ctx) {
 	while (FileQueue.length > 0) {
-		const inputFile = path.join(ctx.defaults.contentDir, FileQueue[0])
+		const inputFile = path.join(Defaults.contentDir, FileQueue[0])
 		for await (const page of yieldPagesFromInputFile(ctx, inputFile)) {
-			const outputUrl = path.join(ctx.defaults.outputDir, page.outputUri)
+			const outputUrl = path.join(Defaults.outputDir, page.outputUri)
 
 			await fs.mkdir(path.dirname(outputUrl), { recursive: true })
 			const outputStream = fss.createWriteStream(outputUrl)
@@ -364,7 +370,7 @@ async function* yieldPagesFromInputFile(
 	/** @type {Ctx} */ ctx,
 	/** @type {string} */ inputFile
 ) {
-	const inputUri = path.relative(ctx.defaults.contentDir, inputFile)
+	const inputUri = path.relative(Defaults.contentDir, inputFile)
 	const entrypointUri = await utilGetEntrypointFromInputUri(ctx, inputFile)
 	const tenJs = await utilExtractTenJs(ctx, entrypointUri)
 	const outputUri = await convertInputUriToOutputUri(
@@ -443,7 +449,7 @@ async function handleEntrypoint(
 		// TODO: This should be replaced with something
 	} else if (page.entrypointUri.endsWith('.md')) {
 		let markdown = await fs.readFile(
-			path.join(ctx.defaults.contentDir, page.entrypointUri),
+			path.join(Defaults.contentDir, page.entrypointUri),
 			'utf-8'
 		)
 		const { html, frontmatter } = (() => {
@@ -455,8 +461,8 @@ async function handleEntrypoint(
 
 			return {
 				html: MarkdownItInstance.render(markdown),
-				frontmatter: ctx.config.validateFrontmatter(
-					path.join(ctx.defaults.contentDir, page.entrypointUri),
+				frontmatter: Config.validateFrontmatter(
+					path.join(Defaults.contentDir, page.entrypointUri),
 					frontmatter
 				),
 			}
@@ -464,11 +470,11 @@ async function handleEntrypoint(
 
 		const layout = await utilExtractLayout(ctx, [
 			frontmatter?.layout,
-			await ctx.config.getLayout(ctx, page),
+			await Config?.getLayout?.(ctx, page),
 			ctx?.defaults?.layout,
 			'default.hbs',
 		])
-		const template = ctx.singletons.handlebars.compile(layout, {
+		const template = HandlebarsInstance.compile(layout, {
 			noEscape: true,
 		})
 		const templatedHtml = template({
@@ -484,10 +490,10 @@ async function handleEntrypoint(
 		page.entrypointUri.endsWith('.xml')
 	) {
 		let html = await fs.readFile(
-			path.join(ctx.defaults.contentDir, page.entrypointUri),
+			path.join(Defaults.contentDir, page.entrypointUri),
 			'utf-8'
 		)
-		const template = ctx.singletons.handlebars.compile(html, {
+		const template = HandlebarsInstance.compile(html, {
 			noEscape: true,
 		})
 		let templatedHtml = template({
@@ -498,12 +504,12 @@ async function handleEntrypoint(
 		const header = await page.tenJs?.Header?.(ctx)
 		const layout = await utilExtractLayout(ctx, [
 			meta?.layout,
-			await ctx.config.getLayout(ctx, page),
+			await Config?.getLayout?.(ctx, page),
 			ctx?.defaults?.layout,
 			'default.hbs',
 		])
 
-		templatedHtml = ctx.singletons.handlebars.compile(layout, {
+		templatedHtml = HandlebarsInstance.compile(layout, {
 			noEscape: true,
 		})({
 			__body: templatedHtml,
@@ -546,7 +552,7 @@ async function handleNonEntrypoint(
 
 async function fsCopyStaticFiles(/** @type {Ctx} */ ctx) {
 	try {
-		await fs.cp(ctx.defaults.staticDir, ctx.defaults.outputDir, {
+		await fs.cp(Defaults.staticDir, Defaults.outputDir, {
 			recursive: true,
 		})
 	} catch (err) {
@@ -557,14 +563,14 @@ async function fsCopyStaticFiles(/** @type {Ctx} */ ctx) {
 async function fsClearBuildDirectory(/** @type {Ctx} */ ctx) {
 	consola.info('Clearing build directory...')
 	try {
-		await fs.rm(ctx.defaults.outputDir, { recursive: true })
+		await fs.rm(Defaults.outputDir, { recursive: true })
 	} catch (err) {
 		if (err.code !== 'ENOENT') throw err
 	}
 }
 
 async function fsPopulateContentMap(/** @type {Ctx} */ ctx) {
-	await walk(ctx.defaults.contentDir)
+	await walk(Defaults.contentDir)
 
 	async function walk(/** @type {string} */ dir) {
 		for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
@@ -591,10 +597,10 @@ async function fsRegisterHandlebarsHelpers(/** @type {Ctx} */ ctx) {
 	}
 	try {
 		for (const partialFilename of await fs.readdir(
-			ctx.defaults.partialsDir
+			Defaults.partialsDir
 		)) {
 			const partialContent = await fs.readFile(
-				path.join(ctx.defaults.partialsDir, partialFilename),
+				path.join(Defaults.partialsDir, partialFilename),
 				'utf-8'
 			)
 
@@ -608,20 +614,20 @@ async function fsRegisterHandlebarsHelpers(/** @type {Ctx} */ ctx) {
 	}
 
 	// Re-register helpers.
-	for (const helper in ctx.handlebarsHelpers) {
+	for (const helper in Config.handlebarsHelpers) {
 		if (OriginalHandlebarsHelpers.includes(helper)) continue
 
 		handlebars.unregisterHelper(helper)
 	}
-	for (const helper in ctx.handlebarsHelpers) {
-		handlebars.registerHelper(helper, ctx.handlebarsHelpers[helper])
+	for (const helper in Config.handlebarsHelpers) {
+		handlebars.registerHelper(helper, Config.handlebarsHelpers[helper])
 	}
 
-	ctx.singletons.handlebars = handlebars
+	HandlebarsInstance = handlebars
 }
 
 async function addAllContentFilesToFileQueue(/** @type {Ctx} */ ctx) {
-	await walk(ctx.defaults.contentDir)
+	await walk(Defaults.contentDir)
 	async function walk(/** @type {string} */ dir) {
 		for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
 			if (entry.isDirectory()) {
@@ -629,7 +635,7 @@ async function addAllContentFilesToFileQueue(/** @type {Ctx} */ ctx) {
 				await walk(subdir)
 			} else if (entry.isFile()) {
 				const inputFile = path.join(entry.parentPath, entry.name)
-				const inputUri = path.relative(ctx.defaults.contentDir, inputFile)
+				const inputUri = path.relative(Defaults.contentDir, inputFile)
 				FileQueue.push(inputUri)
 			}
 		}
@@ -642,7 +648,10 @@ async function convertInputUriToOutputUri(
 	/** @type {TenJs} */ tenJs,
 	/** @type {string | null} */ entrypointUri
 ) {
-	inputUri = ctx.config.customUriTransform(inputUri)
+	if (Config?.transformUri) {
+		inputUri = Config.transformUri(inputUri)
+	}
+	inputUri = '/' + inputUri // TODO
 
 	// For an `inputFile` of `/a/b/c.txt`, this extracts `/a`.
 	const pathPart = path.dirname(path.dirname(inputUri))
@@ -664,7 +673,7 @@ async function convertInputUriToOutputUri(
 	}
 
 	async function getNewParentDirname() {
-		const inputFile = path.join(ctx.defaults.contentDir, inputUri)
+		const inputFile = path.join(Defaults.contentDir, inputUri)
 
 		const meta = await tenJs?.Meta?.()
 		if (meta?.slug) {
@@ -690,7 +699,7 @@ async function extractContentFileFrontmatter(
 	/** @type {string} */ entrypointUri
 ) {
 	if (!inputFile) return {}
-	const entrypointFile = path.join(ctx.defaults.contentDir, entrypointUri)
+	const entrypointFile = path.join(Defaults.contentDir, entrypointUri)
 
 	let markdown
 	try {
@@ -705,7 +714,7 @@ async function extractContentFileFrontmatter(
 		return ''
 	})
 
-	return ctx.config.validateFrontmatter(entrypointFile, frontmatter)
+	return Config.validateFrontmatter(entrypointFile, frontmatter)
 }
 
 async function utilExtractLayout(
@@ -717,7 +726,7 @@ async function utilExtractLayout(
 			return layout.toString()
 		} else if (typeof layout === 'string') {
 			return await fs.readFile(
-				path.join(ctx.defaults.layoutDir, layout),
+				path.join(Defaults.layoutDir, layout),
 				'utf-8'
 			)
 		}
@@ -728,7 +737,7 @@ async function utilExtractTenJs(
 	/** @type {Ctx} */ ctx,
 	/** @type {string} */ entrypointUri
 ) {
-	const entrypointFile = path.join(ctx.defaults.contentDir, entrypointUri)
+	const entrypointFile = path.join(Defaults.contentDir, entrypointUri)
 
 	try {
 		const javascriptFile = path.join(
@@ -747,7 +756,7 @@ async function utilGetEntrypointFromInputUri(
 	/** @type {Ctx} */ ctx,
 	/** @type {string} */ inputFile
 ) {
-	const inputUri = path.relative(ctx.defaults.contentDir, inputFile)
+	const inputUri = path.relative(Defaults.contentDir, inputFile)
 	const dirname = path.basename(path.dirname(inputUri))
 	// prettier-ignore
 	let fileUris = [
@@ -771,7 +780,7 @@ async function utilGetEntrypointFromInputUri(
 		if (['.md', '.html', '.xml'].includes(path.parse(uri).ext)) {
 			try {
 				await fs.stat(file)
-				return path.relative(ctx.defaults.contentDir, file)
+				return path.relative(Defaults.contentDir, file)
 			} catch {}
 		}
 	}
