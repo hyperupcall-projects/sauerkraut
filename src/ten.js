@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // @ts-check
 import fs from 'node:fs/promises'
-import fss, { existsSync } from 'node:fs'
+import fss from 'node:fs'
 import path from 'node:path'
 import util from 'node:util'
 import url from 'node:url'
@@ -17,7 +17,6 @@ import Shiki from '@shikijs/markdown-it'
 import { listen } from 'listhen'
 import {
 	createApp,
-	createError,
 	createRouter,
 	defineEventHandler,
 	serveStatic,
@@ -34,7 +33,8 @@ export { consola }
 /**
  * @typedef {import('handlebars')} Handlebars
  * @typedef {import('./ten.d.ts').Config} Config
- * @typedef {import('./ten.d.ts').TenJs} TenJs
+ * @typedef {import('./ten.d.ts').TenFile} TenFile
+ * @typedef {import('./ten.d.ts').TenRoute} TenRoute
  * @typedef {import('./ten.d.ts').Options} Options
  * @typedef {import('./ten.d.ts').Page} Page
  * @typedef {import('./ten.d.ts').Frontmatter} Frontmatter
@@ -124,6 +124,7 @@ export async function main() {
 		consola.error(`File "ten.config.js" not found for project: "${path.dirname(configFile)}"`)
 		process.exit(1)
 	}
+
 	const /** @type {Config} */ config = await import(configFile)
 	if (options.command === 'serve') {
 		await commandServe(config, options)
@@ -345,31 +346,30 @@ async function* yieldPagesFromInputFile(
 	/** @type {string} */ inputFile
 ) {
 	const inputUri = path.relative(config.defaults.contentDir, inputFile)
-	const entrypointUri = await utilGetEntrypointFromInputUri(config, options, inputFile)
-	const tenJs = await utilExtractTenJs(config, options, entrypointUri)
+	const [tenFile, tenRoute] = await utilImportJs(config, options, inputFile)
 	const outputUri = await convertInputUriToOutputUri(
 		config, options,
 		inputUri,
-		tenJs,
-		entrypointUri
+		tenFile,
+		tenRoute
 	)
 
 	/** @type {Page} */
 	const page = {
 		inputFile,
 		inputUri,
-		outputUri,
-		entrypointUri,
-		tenJs,
+		tenFile,
+		tenRoute,
 		parameters: {},
+		outputUri,
 	}
 
-	if (page.tenJs.GenerateSlugMapping) {
-		const slugMap = (await page.tenJs.GenerateSlugMapping({ config, options })) ?? []
+	if (page.tenFile?.GenerateSlugMapping) {
+		const slugMap = (await page.tenFile.GenerateSlugMapping({ config, options })) ?? []
 		const originalOutputUri = page.outputUri
 		for (const slug of slugMap) {
 			const data =
-				(await page.tenJs?.GenerateTemplateVariables?.({ config, options }, {
+				(await page.tenFile?.GenerateTemplateVariables?.({ config, options }, {
 					slug: slug.slug,
 					count: slug.count,
 				})) ?? {}
@@ -385,7 +385,7 @@ async function* yieldPagesFromInputFile(
 		}
 	} else {
 		const data =
-			(await page.tenJs?.GenerateTemplateVariables?.({ config, options }, {})) ?? {}
+			(await page.tenFile?.GenerateTemplateVariables?.({ config, options }, {})) ?? {}
 		page.parameters = data
 
 		yield page
@@ -397,33 +397,26 @@ async function handleContentFile(
 	/** @type {Page} */ page,
 	/** @type {WritableStream} */ outputStream
 ) {
-	if (page.inputUri != page.entrypointUri) {
-		await handleNonEntrypoint(config, options, page, outputStream)
-	} else if (page.entrypointUri) {
-		await handleEntrypoint(config, options, page, outputStream)
-	} else {
+	if (!page.inputUri) {
 		consola.warn(`No content file found for ${page.inputUri}`)
+		return
 	}
-}
 
-async function handleEntrypoint(
-	/** @type {Config} */ config, /** @type {Options} */ options,
-	/** @type {Page} */ page,
-	/** @type {WritableStream} */ outputStream
-) {
-	consola.log(`Processing ${page.entrypointUri}...`)
+	consola.log(`Processing ${page.inputUri}...`)
 	if (
 		// prettier-ignore
 		page.inputUri.includes('/_') ||
-		page.inputUri.includes('_/')
+		page.inputUri.includes('_/'),
+		path.parse(page.inputUri).name.endsWith('_') ||
+		page.inputUri.endsWith('.ten.js')
 	) {
 		// Do not copy file.
 	} else if (page.inputUri.includes('/drafts/')) {
 		// Do not copy file.
 		// TODO: This should be replaced with something
-	} else if (page.entrypointUri.endsWith('.md')) {
+	} else if (page.inputUri.endsWith('.md')) {
 		let markdown = await fs.readFile(
-			path.join(config.defaults.contentDir, page.entrypointUri),
+			path.join(config.defaults.contentDir, page.inputUri),
 			'utf-8'
 		)
 		const { html, frontmatter } = (() => {
@@ -436,7 +429,7 @@ async function handleEntrypoint(
 			return {
 				html: MarkdownItInstance.render(markdown),
 				frontmatter: /** @type {Frontmatter} */ (config.validateFrontmatter(
-					path.join(config.defaults.contentDir, page.entrypointUri),
+					path.join(config.defaults.contentDir, page.inputUri),
 					frontmatter
 				)),
 			}
@@ -454,17 +447,17 @@ async function handleEntrypoint(
 		const templatedHtml = template({
 			__title: frontmatter.title,
 			__body: html,
-			__inputUri: page.entrypointUri,
+			__inputUri: page.inputUri,
 		})
 
 		await outputStream.getWriter().write(templatedHtml)
 		consola.log(`  -> Written to ${page.outputUri}`)
 	} else if (
-		page.entrypointUri.endsWith('.html') ||
-		page.entrypointUri.endsWith('.xml')
+		page.inputUri.endsWith('.html') ||
+		page.inputUri.endsWith('.xml')
 	) {
 		let html = await fs.readFile(
-			path.join(config.defaults.contentDir, page.entrypointUri),
+			path.join(config.defaults.contentDir, page.inputUri),
 			'utf-8'
 		)
 		const template = HandlebarsInstance.compile(html, {
@@ -472,10 +465,10 @@ async function handleEntrypoint(
 		})
 		let templatedHtml = template({
 			...page.parameters,
-			__inputUri: page.entrypointUri,
+			__inputUri: page.inputUri,
 		})
-		const meta = await page.tenJs?.Meta?.()
-		const header = await page.tenJs?.Header?.(config, options)
+		const meta = await page.tenFile?.Meta?.({ config, options })
+		const header = await page.tenFile?.Header?.(config, options)
 		const layout = await utilExtractLayout(config, options, [
 			meta?.layout,
 			await config?.getLayout?.(config, options, page),
@@ -489,34 +482,13 @@ async function handleEntrypoint(
 			__body: templatedHtml,
 			__header_title: header?.title ?? config?.defaults?.title ?? 'Website',
 			__header_content: header?.content ?? '',
-			__inputUri: page.entrypointUri,
+			__inputUri: page.inputUri,
 		})
 
 		await outputStream.getWriter().write(templatedHtml)
 		consola.log(`  -> Written to ${page.outputUri}`)
-	}
-}
-
-async function handleNonEntrypoint(
-	/** @type {Config} */ config, /** @type {Options} */ options,
-	/** @type {Page} */ page,
-	/** @type {WritableStream} */ outputStream
-) {
-	if (
-		page.inputUri.includes('/_') ||
-		page.inputUri.includes('_/') ||
-		path.parse(page.inputUri).name.endsWith('_') ||
-		page.inputUri.endsWith('.ten.js')
-	) {
-		// Do not copy file.
-	} else if (page.inputUri.includes('/drafts/')) {
-		// Do not copy file.
-		// TODO: This should be replaced with something
-	} else if (page.inputUri.match(/\.[a-zA-Z]+\.js$/)) {
-		throw new Error(
-			`Did you mean to append ".ten.js" for file: ${page.inputFile}?`
-		)
 	} else {
+		// TODO
 		// const readable = Readable.toWeb(fss.createReadStream(page.inputFile))
 		// readable.pipeTo(outputStream)
 		const content = await fs.readFile(page.inputFile, 'utf-8')
@@ -619,8 +591,8 @@ async function addAllContentFilesToFileQueue(/** @type {Config} */ config, /** @
 async function convertInputUriToOutputUri(
 	/** @type {Config} */ config, /** @type {Options} */ options,
 	/** @type {string} */ inputUri,
-	/** @type {TenJs} */ tenJs,
-	/** @type {string | null} */ entrypointUri
+	/** @type {TenFile} */ tenFile,
+	/** @type {TenRoute} */ tenRoute
 ) {
 	if (config?.transformUri) {
 		inputUri = config.transformUri(inputUri)
@@ -629,66 +601,28 @@ async function convertInputUriToOutputUri(
 
 	// For an `inputFile` of `/a/b/c.txt`, this extracts `/a`.
 	const pathPart = path.dirname(path.dirname(inputUri))
+
 	// For an `inputFile` of `/a/b/c.txt`, this extracts `b`.
 	const parentDirname = path.basename(path.dirname(inputUri))
 
-	// If `parentDirname` is a "file".
-	if (parentDirname.includes('.') && parentDirname !== '.') {
-		return path.join(pathPart, path.parse(inputUri).base)
-	} else if (!inputUri.endsWith('.html') && !inputUri.endsWith('.md')) {
-		const relPart = await getNewParentDirname()
+	const relPart = await getNewParentDirname()
+
+	if (!inputUri.endsWith('.html') && !inputUri.endsWith('.md')) {
 		return path.join(pathPart, relPart, path.parse(inputUri).base)
 	} else if (path.parse(inputUri).name === parentDirname) {
-		const parentDirname = await getNewParentDirname()
-		return path.join(pathPart, parentDirname, 'index.html')
+		return path.join(pathPart, relPart, 'index.html')
 	} else {
-		const relPart = await getNewParentDirname()
 		return path.join(pathPart, relPart, path.parse(inputUri).name + '.html')
 	}
 
 	async function getNewParentDirname() {
-		const inputFile = path.join(config.defaults.contentDir, inputUri)
-
-		const meta = await tenJs?.Meta?.()
+		const meta = await tenFile?.Meta?.({ config, options })
 		if (meta?.slug) {
 			return meta.slug
 		}
 
-		if (entrypointUri) {
-			const frontmatter = await extractContentFileFrontmatter(
-				config, options,
-				inputFile,
-				entrypointUri
-			)
-			return frontmatter.slug ?? path.basename(path.dirname(inputUri))
-		} else {
-			return path.basename(path.dirname(inputUri))
-		}
+		return tenRoute?.slug ?? path.basename(path.dirname(inputUri))
 	}
-}
-
-async function extractContentFileFrontmatter(
-	/** @type {Config} */ config, /** @type {Options} */ options,
-	/** @type {string} */ inputFile,
-	/** @type {string} */ entrypointUri
-) {
-	if (!inputFile) return {}
-	const entrypointFile = path.join(config.defaults.contentDir, entrypointUri)
-
-	let markdown
-	try {
-		markdown = await fs.readFile(entrypointFile, 'utf-8')
-	} catch {
-		return {}
-	}
-
-	let /** @type {Frontmatter} */ frontmatter = {}
-	markdown = markdown.replace(/^\+\+\+$(.*)\+\+\+$/ms, (_, toml) => {
-		frontmatter = /** @type {Frontmatter} */ (TOML.parse(toml))
-		return ''
-	})
-
-	return config.validateFrontmatter(entrypointFile, frontmatter)
 }
 
 async function utilExtractLayout(
@@ -711,60 +645,26 @@ async function utilExtractLayout(
 	}
 }
 
-/** @returns {Promise<TenJs>} */
-async function utilExtractTenJs(
-	/** @type {Config} */ config, /** @type {Options} */ options,
-	/** @type {string} */ entrypointUri
-) {
-	const entrypointFile = path.join(config.defaults.contentDir, entrypointUri)
-
-	try {
-		const javascriptFile = path.join(
-			path.dirname(entrypointFile),
-			path.parse(entrypointFile).base + '.ten.js'
-		)
-		let /** @type {TenJs} */ tenJs = await import(javascriptFile)
-		return tenJs
-	} catch (err) {
-		if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
-	}
-	return {}
-}
-
-async function utilGetEntrypointFromInputUri(
+/** @returns {Promise<[TenFile, TenRoute]>} */
+async function utilImportJs(
 	/** @type {Config} */ config, /** @type {Options} */ options,
 	/** @type {string} */ inputFile
 ) {
-	const inputUri = path.relative(config.defaults.contentDir, inputFile)
-	const dirname = path.basename(path.dirname(inputUri))
-	// prettier-ignore
-	let fileUris = [
-		'index.md',
-		'index.html',
-		'index.xml',
-	]
-	if (dirname !== '.') {
-		// prettier-ignore
-		fileUris = fileUris.concat([
-			dirname + '.md',
-			dirname + '.html',
-			dirname + '.xml',
-			dirname,
-		])
-	}
+	return await Promise.all([
+		await import(path.join(
+			path.dirname(inputFile),
+			path.parse(inputFile).base + '.ten.js'
+		)).catch((err) => {
+				if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
+			}),
+		await import(path.join(
+			path.dirname(inputFile),
+			'route.ten.js'
+		)).catch((err) => {
+				if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
+			})
+	])
 
-	// Search for a valid "content file" in the same directory.
-	for (const uri of fileUris) {
-		const file = path.join(path.dirname(inputFile), uri)
-		if (['.md', '.html', '.xml'].includes(path.parse(uri).ext)) {
-			try {
-				await fs.stat(file)
-				return path.relative(config.defaults.contentDir, file)
-			} catch {}
-		}
-	}
-
-	throw new Error(`No entrypoint found for file: ${inputFile}`)
 }
 
 async function utilFileExists(/** @type {string} */ file) {

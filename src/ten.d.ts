@@ -1,3 +1,29 @@
+export type Options = {
+    dir: string,
+    command: 'build' | 'serve' | 'new',
+    clean: boolean,
+    verbose: boolean
+}
+
+export type Page = {
+    inputFile: string,
+    inputUri: string,
+    tenFile: typeof TenFile,
+    tenRoute: typeof TenRoute,
+    parameters: Record<PropertyKey, any>,
+    outputUri: string
+}
+
+export type Frontmatter = {
+    title?: string,
+    author?: string,
+    date?: string,
+    layout?: string,
+    slug?: string,
+    categories?: string[],
+    tags?: string[]
+}
+
 export type Config = {
     defaults: {
         title: string,
@@ -22,7 +48,7 @@ export type Config = {
     tenHelpers: Record<string, () => string>,
 }
 
-export type TenJs = {
+export type TenFile = {
     Meta?({ config: Config, options: Options }): Promise<TenJsMeta>
 
     Header?({ config: Config, options: Options }): Promise<string>
@@ -30,6 +56,10 @@ export type TenJs = {
     GenerateSlugMapping?({ config: Config, options: Options }): Promise<TenJsSlugMapping>
 
     GenerateTemplateVariables?({ config: Config, options: Options}): Promise<Record<PropertyKey, any>>
+}
+
+export type TenRoute = {
+    slug?: string
 }
 
 type TenJsMeta = {
@@ -41,31 +71,5 @@ type TenJsSlugMapping = Array<{
     slug: string,
     count: number
 }>
-
-export type Options = {
-    dir: string,
-    command: 'build' | 'serve' | 'new',
-    clean: boolean,
-    verbose: boolean
-}
-
-export type Page = {
-    inputFile: string,
-    inputUri: string,
-    outputUri: string,
-    entrypointUri: string,
-    tenJs: typeof TenJs,
-    parameters: Record<PropertyKey, any>
-}
-
-export type Frontmatter = {
-    title?: string,
-    author?: string,
-    date?: string,
-    layout?: string,
-    slug?: string,
-    categories?: string[],
-    tags?: string[]
-}
 
 export {}

@@ -1,25 +1,31 @@
 # Ten <!-- omit from toc -->
 
-Wedding myself to a third-party static site generator solution limits the degree to which I can customize my website. Ten solves that because it's my software.
+Ten will be / is a static site generator / content management system / web framework solution. I created it because:
+
+- Any current framework (Hugo, Zola, etc.) will eventually go the way of Jekyll
+- It's easier to hack on and add bespoke functionality
 
 ## Plans <!-- omit from toc -->
 
+- on watch mode:
+  - it's VERY useful for debugging output
+  - it felt slow and bad because i was using it with browser-sync to serve the generated contents
+  - it should now be "re-added" (without browser-sync), and everything will make sense
 - Blog RSS feed and fix tags/categories in dev server
 - Be able to build only certain files/directory matching a glob
-- later: treat entrypoint and non-entrypoint the same
-  - fix "XML" file being an entrypoint. ie, all files should be able to be procesed with a ".ten.js" file.
-- later: Make `FileList` a `DirList` (later)
 - later: Linter to always ensure trailing slash for local URLs
 
 ## Introduction <!-- omit from toc -->
 
-- [Entrypoint Content Files](#entrypoint-content-files)
+- [Summary](#summary)
+- [Content Files](#content-files)
   - [File Formats](#file-formats)
     - [HTML Files](#html-files)
     - [Markdown Files](#markdown-files)
     - [XML Files](#xml-files)
   - [Non-entrypoint Content Files](#non-entrypoint-content-files)
-- [JavaScript Customization](#javascript-customization)
+- [Page JavaScript Customization](#page-javascript-customization)
+- [Route JavaScript Customization](#route-javascript-customization)
 - [Directory Structure](#directory-structure)
   - [`build/`](#build)
   - [`content/`](#content)
@@ -29,20 +35,43 @@ Wedding myself to a third-party static site generator solution limits the degree
   - [`layouts/`](#layouts)
   - [`partials/`](#partials)
   - [`static/`](#static)
+- [Older Ideas](#older-ideas)
+
+## Summary
 
 Ten is a static site generator. Conventionally, it reads input files from `content/`; for each file, it is processed, then written to `build/`. When processing each file, it transforms both its path and content.
 
-When walking the content directory, every directory is associated with either a route or file. For each directory, there are two possible types of files: Entrypoint and non-entrypoint files.
+When walking the content directory, every file is associated with either a route or ignored. The name of a file can change it's route, or if it's ignored.
 
-## Entrypoint Content Files
+## Content Files
 
-These are similar to `index.html` when serving files over the web, or `page.js` in a Next.js project. They define the content generated at a particular route. There are three way to define one:
+Content files are any files located in the content directory. Transformations are done to file paths in two cases:
 
-- `/content/index.html` -> `/build/index.html`
-- `/content/about/about.md` -> `/build/about/index.html`
-- `/content/index.html/index.html` -> `/build/index.html`
+1. If a file ends with `.md` (or similar) files, it is converted into a `.html` file.
 
-The first way is required. The second way makes it easier to edit files in IDEs. The third way makes it easier to differently group files that are all under the same route.
+- `/mathematics.md` -> `/mathematics.html`
+- `/index.md` -> `/index.html`
+
+2. If a file name (excluding file extensions) is the same as the directory name of it's parent directory, then that file is renamed to `index.html`.
+
+- `/about/about.md` -> `/about/index.html`
+
+This makes it easier to edit files in IDEs (unlike Next.js's `page.js`).
+
+### ??? Things
+
+**Run once and cached files**
+
+- `.py`, `.js` files used in "markdown fence"
+
+**services things**
+
+- A route is dedicated to playing around with postgres and showing output
+- Be able to manage postgres with docker/nix and make it "reproducable"
+
+**other services**
+
+- Excalidraw `.json` files
 
 ### File Formats
 
@@ -62,22 +91,38 @@ Markdown files support the following features:
 
 #### XML Files
 
-TODO: Fix this
+TODO: No special processing will be done
 
-### Non-entrypoint Content Files
+#### Other Files
 
-These files are files associated with the entrypoint. They are copied to their respective output directory, unless the file matches:
+- Handlebars
+
+### Special File Names
+
+Some file names are treated specially. (TODO: handle directory case)
 
 - `*.ten.js`
+
+These are ignored and processed as described in [JavaScript Customization](#javascript-customization)
+
 - `_*`
+
+These are treated as "draft" and only be published when serving the files with the development server.
+
 - `*_`
 
-## JavaScript Customization
+These are ignored.
+
+## Page JavaScript Customization
 
 - `Meta()`
 - `Header()`
 - `GenerateSlugMapping()`
 - `GenerateTemplateVariables()`
+
+## Route JavaScript Customization
+
+TODO: Something like `IgnoredFiles()` to customize what files are ignored. Maybe other things. `ten.js`?
 
 ## Directory Structure
 
@@ -112,3 +157,7 @@ Handlebars partials that can be used in any HTML file.
 ### `static/`
 
 These assets are copied directly to the build directory without processing.
+
+### Older Ideas
+
+**Entrypoints**. Entrypoints were created to make it easier to approximate tracking dependencies of a page. For example, if `/math/theme.cls` changed, then probably `/math/slides.tex` should be regenerated as well. This breaks down too often, as it's not uncommon for files under a particular directory to be unrelated. An alternative to entrypoints was tracking dependencies of a page by parsing the page with either regular expressions or a laguage parser library. This wasn't chosen since it would mean adding regular expressions or traverse functions for each markup language. And, detection would not be posssible with more dynamic markup languages.
