@@ -25,6 +25,7 @@ import {
 	toNodeListener,
 } from 'h3'
 import mime from 'mime-types'
+import * as v from 'valibot'
 
 import { markedLinks } from './marked.js'
 
@@ -98,7 +99,7 @@ export async function main() {
 		verbose: /** @type {boolean} */ (values.verbose),
 	}
 
-	if (!options.dir) {
+	if (!options.command) {
 		console.error(helpText)
 		consola.error('No command provided.')
 		process.exit(1)
@@ -109,7 +110,7 @@ export async function main() {
 		process.exit(0)
 	}
 
-	if (options.command !== 'serve' && options.command !== 'build' && options.command !== 'new') {
+	if (options.command !== 'serve' && options.command !== 'watch' && options.command !== 'build' && options.command !== 'new') {
 		console.error(helpText)
 		if (!positionals[0]) {
 			consola.error(`No command passed`)
@@ -126,8 +127,36 @@ export async function main() {
 	}
 
 	const /** @type {Config} */ config = await import(configFile)
+	const ConfigSchema = v.object({
+		defaults: v.strictObject({
+			title: v.string(),
+			layout: v.string(),
+			rootDir: v.string(),
+			cacheFile: v.string(),
+			contentDir: v.string(),
+			layoutDir: v.string(),
+			partialDir: v.string(),
+			staticDir: v.string(),
+			outputDir: v.string()
+		}),
+		transformUri: v.optional(v.function()),
+		validateFrontmatter: v.optional(v.function()),
+		handlebearsHelpers: v.optional(v.record(v.string(), v.function())),
+		tenHelpers: v.optional(v.record(v.string(), v.function()))
+	})
+	const result = v.safeParse(ConfigSchema, config)
+	if (!result.success) {
+		consola.error(`Failed to parse config file: "${configFile}"`)
+
+		const flatErrors = v.flatten(result.issues)
+		console.log(flatErrors)
+		process.exit(1)
+	}
+
 	if (options.command === 'serve') {
 		await commandServe(config, options)
+	} else if (options.command === 'watch') {
+		await commandWatch(config, options)
 	} else if (options.command === 'build') {
 		await commandBuild(config, options)
 	} else if (options.command === 'new') {
@@ -150,6 +179,7 @@ async function commandServe(/** @type {Config} */ config, /** @type {Options} */
 				const outputUri = event.path.endsWith('/')
 					? `${event.path}index.html`
 					: event.path
+
 				const inputUri = ContentMap.get(outputUri)
 
 				setResponseHeaders(event, {
@@ -228,6 +258,10 @@ async function commandServe(/** @type {Config} */ config, /** @type {Options} */
 	process.on('SIGINT', async () => {
 		await listener.close()
 	})
+}
+
+export async function commandWatch(/** @type {Config} */ config, /** @type {Options} */ options) {
+	console.log('build')
 }
 
 export async function commandBuild(/** @type {Config} */ config, /** @type {Options} */ options) {
@@ -487,6 +521,24 @@ async function handleContentFile(
 
 		await outputStream.getWriter().write(templatedHtml)
 		consola.log(`  -> Written to ${page.outputUri}`)
+	} else if (page.inputUri.endsWith('.cards.json')) {
+		let json = await fs.readFile(
+			path.join(config.defaults.contentDir, page.inputUri),
+									 'utf-8'
+		)
+
+		const flashcardsHtml = await fs.readFile(path.join(import.meta.dirname, '../resources/flashcards-page/flashcards.html'), 'utf-8')
+		const template = HandlebarsInstance.compile(flashcardsHtml, {
+			noEscape: true,
+		})
+		let templatedHtml = template({
+			...page.parameters,
+			__inputUri: page.inputUri,
+			__flashcard_data: json
+		})
+
+		await outputStream.getWriter().write(templatedHtml)
+		consola.log(`  -> Written to ${page.outputUri}`)
 	} else {
 		// TODO
 		// const readable = Readable.toWeb(fss.createReadStream(page.inputFile))
@@ -526,7 +578,7 @@ async function fsPopulateContentMap(/** @type {Config} */ config, /** @type {Opt
 			} else if (entry.isFile()) {
 				const inputFile = path.join(entry.parentPath, entry.name)
 				for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-					consola.log(`Adding ${page.outputUri} -> ${page.inputUri}`)
+					consola.log(`Adding ${page.inputUri} -> ${page.outputUri}`)
 					ContentMap.set(page.outputUri, page.inputUri)
 				}
 			}
@@ -598,6 +650,10 @@ async function convertInputUriToOutputUri(
 		inputUri = config.transformUri(inputUri)
 	}
 	inputUri = '/' + inputUri // TODO
+	if (inputUri.endsWith('.cards.json')) {
+		console.log(inputUri)
+		inputUri = inputUri.replace(/\.cards\.json$/, '.html')
+	}
 
 	// For an `inputFile` of `/a/b/c.txt`, this extracts `/a`.
 	const pathPart = path.dirname(path.dirname(inputUri))

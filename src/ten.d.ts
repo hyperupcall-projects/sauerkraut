@@ -1,6 +1,6 @@
 export type Options = {
     dir: string,
-    command: 'build' | 'serve' | 'new',
+    command: 'serve' | 'watch' | 'build' | 'new',
     clean: boolean,
     verbose: boolean
 }

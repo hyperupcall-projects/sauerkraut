@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Flashcards</title>
+    <style>
+        .count {
+            font-size: 18px;
+        }
+
+        .unit {
+            display: flex;
+            align-items: center;
+        }
+
+        .flashcard {
+            background-color: aliceblue;
+            border: 1px solid #333;
+            width: 400px;
+            height: 160px;
+            text-align: center;
+            padding-block-start: 40px;
+            font-size: 64px;
+        }
+
+        button {
+            margin: 1px 2px;
+            padding: 6px 12px;
+        }
+    </style>
+  </head>
+  <body>
+    <h1>Flashcard</h1>
+    <h2 class="title"></h2>
+    <h3 class="author"></h3>
+
+    <p class='count'></p>
+    <div class="unit">
+        <button class='previous'>Previous</button>
+        <div class="flashcard"></div>
+        <button class='next'>Next</button>
+    </div>
+    <button class='flip'>Flip</button>
+  </body>
+  <script>
+    globalThis.data = JSON.parse(`
+{{__flashcard_data}}
+`)
+  </script>
+    <script>
+        const flashcardData = globalThis.data
+        const titleEl = document.querySelector('.title')
+        const authorEl = document.querySelector('.author')
+        const countEl = document.querySelector('.count')
+        const flashcardEl = document.querySelector('.flashcard')
+
+        titleEl.textContent = flashcardData.title
+        authorEl.textContent = flashcardData.author
+
+        let idx = 0
+        let side = 'front'
+
+        function setContent() {
+            flashcardEl.textContent = flashcardData.flashcards[idx][side]
+            countEl.textContent = `Card ${idx+1}/${flashcardData.flashcards.length}`
+        }
+        setContent()
+
+        document.querySelector('.previous').addEventListener('click', () => {
+            if (idx > 0) {
+                idx = idx - 1
+                setContent()
+            }
+        })
+        document.querySelector('.next').addEventListener('click', () => {
+            if (idx < flashcardData.flashcards.length - 1) {
+                idx = idx + 1
+                setContent()
+            }
+        })
+        document.querySelector('.flip').addEventListener('click', () => {
+            if (side === 'front') {
+                side = 'back'
+            }
+            else if (side === 'back') {
+                side = 'front'
+            }
+            setContent()
+        })
+    </script>
+</html>
