@@ -25,6 +25,7 @@ import {
 	toNodeListener,
 } from 'h3'
 import mime from 'mime-types'
+import ansiEscapes from 'ansi-escapes'
 import * as v from 'valibot'
 
 import { markedLinks } from './marked.js'
@@ -33,12 +34,43 @@ export { consola }
 
 /**
  * @typedef {import('handlebars')} Handlebars
- * @typedef {import('./ten.d.ts').Config} Config
  * @typedef {import('./ten.d.ts').TenFile} TenFile
  * @typedef {import('./ten.d.ts').TenRoute} TenRoute
  * @typedef {import('./ten.d.ts').Options} Options
  * @typedef {import('./ten.d.ts').Page} Page
  * @typedef {import('./ten.d.ts').Frontmatter} Frontmatter
+ */
+
+function getConfigSchema(/** @type {string} */ rootDir) {
+	return v.object({
+		defaults: v.strictObject({
+			title: v.optional(v.string(), rootDir),
+			rootDir: v.optional(v.string()),
+			contentDir: v.optional(v.string(), path.join(rootDir, 'content')),
+			layoutDir: v.optional(v.string(), path.join(rootDir, 'layouts')),
+			partialDir: v.optional(v.string(), path.join(rootDir, 'partials')),
+			staticDir: v.optional(v.string(), path.join(rootDir, 'static')),
+			outputDir: v.optional(v.string(), path.join(rootDir, 'build'))
+		}),
+		transformUri: v.optional(v.pipe(v.function(), v.transform((func) => {
+			return (/** @type {string} */ uri) => v.parse(v.string(), func(uri))
+		}))),
+		decideLayout: v.optional(v.pipe(v.function(), v.transform((func) => {
+			return async (/** @type {Config} */ config, /** @type {Options} */ options, /** @type {Page} */ page) => v.parse(v.string(), await func(config, options, page))
+		})), () => () => '__default.hbs'),
+		validateFrontmatter: v.optional(v.pipe(
+			v.function(),
+			v.transform((func) => {
+				return (/** @type {Config} */ config, /** @type {string} */ inputFile, /** @type {Frontmatter} */ frontmatter) => v.parse(v.record(v.string(), v.any()), func(config, inputFile, frontmatter))
+			})
+		), () => () => true),
+		handlebarsHelpers: v.optional(v.record(v.string(), v.function())),
+		tenHelpers: v.optional(v.record(v.string(), v.function()))
+	})
+}
+
+/**
+ * @typedef {v.InferOutput<ReturnType<typeof getConfigSchema>>} Config
  */
 
 const ShikiInstance = await Shiki({
@@ -62,7 +94,6 @@ let /** @type {Handlebars} */ HandlebarsInstance = /** @type {any} */ (null)
 globalThis.MarkdownItInstance = MarkdownItInstance // TODO
 const /** @type {string[]} */ FileQueue = []
 const /** @type {Map<string, string>} */ ContentMap = new Map()
-const OriginalHandlebarsHelpers = Object.keys(handlebarsImport.helpers)
 
 if (
 	(function isTopLevel() {
@@ -126,25 +157,10 @@ export async function main() {
 		process.exit(1)
 	}
 
+	const rootDir = path.dirname(configFile)
 	const /** @type {Config} */ config = await import(configFile)
-	const ConfigSchema = v.object({
-		defaults: v.strictObject({
-			title: v.string(),
-			layout: v.string(),
-			rootDir: v.string(),
-			cacheFile: v.string(),
-			contentDir: v.string(),
-			layoutDir: v.string(),
-			partialDir: v.string(),
-			staticDir: v.string(),
-			outputDir: v.string()
-		}),
-		transformUri: v.optional(v.function()),
-		validateFrontmatter: v.optional(v.function()),
-		handlebearsHelpers: v.optional(v.record(v.string(), v.function())),
-		tenHelpers: v.optional(v.record(v.string(), v.function()))
-	})
-	const result = v.safeParse(ConfigSchema, config)
+	const configSchema = getConfigSchema(rootDir)
+	const result = v.safeParse(configSchema, config)
 	if (!result.success) {
 		consola.error(`Failed to parse config file: "${configFile}"`)
 
@@ -154,13 +170,13 @@ export async function main() {
 	}
 
 	if (options.command === 'serve') {
-		await commandServe(config, options)
+		await commandServe(result.output, options)
 	} else if (options.command === 'watch') {
-		await commandWatch(config, options)
+		await commandWatch(result.output, options)
 	} else if (options.command === 'build') {
-		await commandBuild(config, options)
+		await commandBuild(result.output, options)
 	} else if (options.command === 'new') {
-		await commandNew(config, options)
+		await commandNew(result.output, options)
 	}
 }
 
@@ -198,14 +214,14 @@ async function commandServe(/** @type {Config} */ config, /** @type {Options} */
 						},
 					})
 
-					const inputFile = path.join(config.defaults.contentDir, inputUri)
+					const inputFile = path.join(config?.defaults.contentDir, inputUri)
 					for await (const page of yieldPagesFromInputFile(
 						config, options,
 						inputFile
 					)) {
 						const rootRelUri = path.relative(
 							options.dir,
-							path.join(config.defaults.contentDir, page.inputUri)
+							path.join(config?.defaults.contentDir, page.inputUri)
 						)
 						consola.info(
 							`Request (content): ${event.path}  -> ${rootRelUri}`
@@ -219,17 +235,17 @@ async function commandServe(/** @type {Config} */ config, /** @type {Options} */
 				} else {
 					const rootRelUri = path.relative(
 						options.dir,
-						path.join(config.defaults.staticDir, event.path)
+						path.join(config?.defaults.staticDir, event.path)
 					)
 					consola.info('Request (static):', rootRelUri)
 
 					return serveStatic(event, {
 						getContents(id) {
-							return fs.readFile(path.join(config.defaults.staticDir, id))
+							return fs.readFile(path.join(config?.defaults.staticDir, id))
 						},
 						async getMeta(id) {
 							const stats = await fs
-								.stat(path.join(config.defaults.staticDir, id))
+								.stat(path.join(config?.defaults.staticDir, id))
 								.catch(() => null)
 
 							if (!stats?.isFile()) {
@@ -261,7 +277,7 @@ async function commandServe(/** @type {Config} */ config, /** @type {Options} */
 }
 
 export async function commandWatch(/** @type {Config} */ config, /** @type {Options} */ options) {
-	console.log('build')
+	console.log('watch')
 }
 
 export async function commandBuild(/** @type {Config} */ config, /** @type {Options} */ options) {
@@ -302,7 +318,7 @@ async function commandNew(/** @type {Config} */ config, /** @type {Options} */ o
 		.replace('T', ' ')
 		.replace(/\.[0-9]+Z$/, 'Z')
 	const markdownFile = path.join(
-		config.defaults.contentDir,
+		config?.defaults.contentDir,
 		'posts/drafts',
 		`${slug}/${slug}.md`
 	)
@@ -336,9 +352,9 @@ async function iterateFileQueueByCallback(
 
 	async function cb() {
 		if (FileQueue.length > 0) {
-			const inputFile = path.join(config.defaults.contentDir, FileQueue[0])
+			const inputFile = path.join(config?.defaults.contentDir, FileQueue[0])
 			for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-				const outputUrl = path.join(config.defaults.outputDir, page.outputUri)
+				const outputUrl = path.join(config?.defaults.outputDir, page.outputUri)
 
 				await fs.mkdir(path.dirname(outputUrl), { recursive: true })
 				const outputStream = fss.createWriteStream(outputUrl)
@@ -360,9 +376,9 @@ async function iterateFileQueueByCallback(
 
 async function iterateFileQueueByWhileLoop(/** @type {Config} */ config, /** @type {Options} */ options) {
 	while (FileQueue.length > 0) {
-		const inputFile = path.join(config.defaults.contentDir, FileQueue[0])
+		const inputFile = path.join(config?.defaults.contentDir, FileQueue[0])
 		for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-			const outputUrl = path.join(config.defaults.outputDir, page.outputUri)
+			const outputUrl = path.join(config?.defaults.outputDir, page.outputUri)
 
 			await fs.mkdir(path.dirname(outputUrl), { recursive: true })
 			const outputStream = fss.createWriteStream(outputUrl)
@@ -379,7 +395,7 @@ async function* yieldPagesFromInputFile(
 	/** @type {Options} */ options,
 	/** @type {string} */ inputFile
 ) {
-	const inputUri = path.relative(config.defaults.contentDir, inputFile)
+	const inputUri = path.relative(config?.defaults.contentDir, inputFile)
 	const [tenFile, tenRoute] = await utilImportJs(config, options, inputFile)
 	const outputUri = await convertInputUriToOutputUri(
 		config, options,
@@ -436,7 +452,17 @@ async function handleContentFile(
 		return
 	}
 
-	consola.log(`Processing ${page.inputUri}...`)
+	// TODO
+	let titleOverride
+	HandlebarsInstance.registerHelper('setVariable', function setVariable(varName, varValue, options){
+		options.data.root[varName] = varValue;
+		if (varName === '__title') {
+			titleOverride = varValue
+		}
+	})
+
+	console.info(`Processing "${ansiEscapes.link(page.inputUri, page.inputFile)}..."`)
+	let didProcess = true
 	if (
 		// prettier-ignore
 		page.inputUri.includes('/_') ||
@@ -448,9 +474,10 @@ async function handleContentFile(
 	} else if (page.inputUri.includes('/drafts/')) {
 		// Do not copy file.
 		// TODO: This should be replaced with something
+		didProcess = false
 	} else if (page.inputUri.endsWith('.md')) {
 		let markdown = await fs.readFile(
-			path.join(config.defaults.contentDir, page.inputUri),
+			path.join(config?.defaults.contentDir, page.inputUri),
 			'utf-8'
 		)
 		const { html, frontmatter } = (() => {
@@ -463,7 +490,8 @@ async function handleContentFile(
 			return {
 				html: MarkdownItInstance.render(markdown),
 				frontmatter: /** @type {Frontmatter} */ (config.validateFrontmatter(
-					path.join(config.defaults.contentDir, page.inputUri),
+					config,
+					path.join(config?.defaults.contentDir, page.inputUri),
 					frontmatter
 				)),
 			}
@@ -471,27 +499,25 @@ async function handleContentFile(
 
 		const layout = await utilExtractLayout(config, options, [
 			frontmatter?.layout,
-			await config?.getLayout?.(config, options, page),
-			config?.defaults?.layout,
-			'default.hbs',
+			await config?.decideLayout?.(config, options, page),
+			'__default.hbs',
 		])
 		const template = HandlebarsInstance.compile(layout, {
 			noEscape: true,
 		})
 		const templatedHtml = template({
-			__title: frontmatter.title,
+			__title: titleOverride ?? frontmatter.title,
 			__body: html,
 			__inputUri: page.inputUri,
 		})
 
 		await outputStream.getWriter().write(templatedHtml)
-		consola.log(`  -> Written to ${page.outputUri}`)
 	} else if (
 		page.inputUri.endsWith('.html') ||
 		page.inputUri.endsWith('.xml')
 	) {
 		let html = await fs.readFile(
-			path.join(config.defaults.contentDir, page.inputUri),
+			path.join(config?.defaults.contentDir, page.inputUri),
 			'utf-8'
 		)
 		const template = HandlebarsInstance.compile(html, {
@@ -505,9 +531,8 @@ async function handleContentFile(
 		const header = await page.tenFile?.Header?.(config, options)
 		const layout = await utilExtractLayout(config, options, [
 			meta?.layout,
-			await config?.getLayout?.(config, options, page),
-			config?.defaults?.layout,
-			'default.hbs',
+			await config?.decideLayout?.(config, options, page),
+			'__default.hbs',
 		])
 
 		templatedHtml = HandlebarsInstance.compile(layout, {
@@ -520,14 +545,13 @@ async function handleContentFile(
 		})
 
 		await outputStream.getWriter().write(templatedHtml)
-		consola.log(`  -> Written to ${page.outputUri}`)
 	} else if (page.inputUri.endsWith('.cards.json')) {
 		let json = await fs.readFile(
-			path.join(config.defaults.contentDir, page.inputUri),
+			path.join(config?.defaults.contentDir, page.inputUri),
 									 'utf-8'
 		)
 
-		const flashcardsHtml = await fs.readFile(path.join(import.meta.dirname, '../resources/flashcards-page/flashcards.html'), 'utf-8')
+		const flashcardsHtml = await fs.readFile(path.join(import.meta.dirname, '../resources/apps/flashcards/flashcards.html'), 'utf-8')
 		const template = HandlebarsInstance.compile(flashcardsHtml, {
 			noEscape: true,
 		})
@@ -538,7 +562,6 @@ async function handleContentFile(
 		})
 
 		await outputStream.getWriter().write(templatedHtml)
-		consola.log(`  -> Written to ${page.outputUri}`)
 	} else {
 		// TODO
 		// const readable = Readable.toWeb(fss.createReadStream(page.inputFile))
@@ -546,11 +569,15 @@ async function handleContentFile(
 		const content = await fs.readFile(page.inputFile, 'utf-8')
 		outputStream.getWriter().write(content)
 	}
+
+	if (didProcess) {
+		console.info(`  -> Writing to "${ansiEscapes.link(page.outputUri, page.inputFile)}"`)
+	}
 }
 
 async function fsCopyStaticFiles(/** @type {Config} */ config, /** @type {Options} */ options) {
 	try {
-		await fs.cp(config.defaults.staticDir, config.defaults.outputDir, {
+		await fs.cp(config?.defaults.staticDir, config?.defaults.outputDir, {
 			recursive: true,
 		})
 	} catch (err) {
@@ -561,14 +588,14 @@ async function fsCopyStaticFiles(/** @type {Config} */ config, /** @type {Option
 async function fsClearBuildDirectory(/** @type {Config} */ config, /** @type {Options} */ options) {
 	consola.info('Clearing build directory...')
 	try {
-		await fs.rm(config.defaults.outputDir, { recursive: true })
+		await fs.rm(config?.defaults.outputDir, { recursive: true })
 	} catch (err) {
 		if (err.code !== 'ENOENT') throw err
 	}
 }
 
 async function fsPopulateContentMap(/** @type {Config} */ config, /** @type {Options} */ options) {
-	await walk(config.defaults.contentDir)
+	await walk(config?.defaults.contentDir)
 
 	async function walk(/** @type {string} */ dir) {
 		for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
@@ -578,13 +605,15 @@ async function fsPopulateContentMap(/** @type {Config} */ config, /** @type {Opt
 			} else if (entry.isFile()) {
 				const inputFile = path.join(entry.parentPath, entry.name)
 				for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-					consola.log(`Adding ${page.inputUri} -> ${page.outputUri}`)
+					console.info(`Adding "${ansiEscapes.link(page.outputUri, inputFile)}"`)
 					ContentMap.set(page.outputUri, page.inputUri)
 				}
 			}
 		}
 	}
 }
+
+const OriginalHandlebarsHelpers = Object.keys(handlebarsImport.helpers)
 
 async function fsRegisterHandlebarsHelpers(/** @type {Config} */ config, /** @type {Options} */ options) {
 	const handlebars = handlebarsImport.create()
@@ -593,22 +622,22 @@ async function fsRegisterHandlebarsHelpers(/** @type {Config} */ config, /** @ty
 	for (const partial in handlebars.partials) {
 		handlebars.unregisterPartial(partial)
 	}
-	try {
-		for (const partialFilename of await fs.readdir(
-			config.defaults.partialDir
-		)) {
-			const partialContent = await fs.readFile(
-				path.join(config.defaults.partialDir, partialFilename),
-				'utf-8'
-			)
 
-			handlebars.registerPartial(
-				path.parse(partialFilename).name,
-				partialContent
-			)
-		}
-	} catch (err) {
-		if (err.code !== 'ENOENT') throw err
+	for (const dirent of [
+		...(await fs.readdir(path.join(import.meta.dirname, '../resources/partials'), { withFileTypes: true })),
+		...(await fs.readdir(config?.defaults.partialDir, { withFileTypes: true }).catch((err) => {
+			if (err.code === 'ENOENT') {
+				return []
+			} else {
+				throw err
+			}
+		})),
+	]) {
+		const partialContent = await fs.readFile(
+			path.join(dirent.parentPath, dirent.name), 'utf-8'
+		)
+
+		handlebars.registerPartial(path.parse(dirent.name).name, partialContent)
 	}
 
 	// Re-register helpers.
@@ -625,7 +654,7 @@ async function fsRegisterHandlebarsHelpers(/** @type {Config} */ config, /** @ty
 }
 
 async function addAllContentFilesToFileQueue(/** @type {Config} */ config, /** @type {Options} */ options) {
-	await walk(config.defaults.contentDir)
+	await walk(config?.defaults.contentDir)
 	async function walk(/** @type {string} */ dir) {
 		for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
 			if (entry.isDirectory()) {
@@ -633,7 +662,7 @@ async function addAllContentFilesToFileQueue(/** @type {Config} */ config, /** @
 				await walk(subdir)
 			} else if (entry.isFile()) {
 				const inputFile = path.join(entry.parentPath, entry.name)
-				const inputUri = path.relative(config.defaults.contentDir, inputFile)
+				const inputUri = path.relative(config?.defaults.contentDir, inputFile)
 				FileQueue.push(inputUri)
 			}
 		}
@@ -651,7 +680,6 @@ async function convertInputUriToOutputUri(
 	}
 	inputUri = '/' + inputUri // TODO
 	if (inputUri.endsWith('.cards.json')) {
-		console.log(inputUri)
 		inputUri = inputUri.replace(/\.cards\.json$/, '.html')
 	}
 
@@ -686,17 +714,24 @@ async function utilExtractLayout(
 	/** @type {(Buffer | string | undefined)[]} */ layouts
 ) {
 	for (const layout of layouts) {
-		if (layout === undefined || layout === '') {
+		if (layout === undefined || layout === null) {
 			continue
 		}
 
 		if (layout instanceof Buffer) {
 			return layout.toString()
 		} else if (typeof layout === 'string') {
-			return await fs.readFile(
-				path.join(config.defaults.layoutDir, layout),
-				'utf-8'
-			)
+			const file1 = path.join(import.meta.dirname, '../resources/layouts', layout)
+			if (await utilFileExists(file1)) {
+				return await fs.readFile(file1, 'utf-8')
+			}
+
+			const file2 = path.join(config?.defaults.layoutDir, layout)
+			if (await utilFileExists(file2)) {
+				return await fs.readFile(file2, 'utf-8')
+			}
+
+			throw new Error(`Failed to find layout "${layout}"`)
 		}
 	}
 }

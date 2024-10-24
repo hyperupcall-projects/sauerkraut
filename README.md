@@ -1,3 +1,34 @@
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+**Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
+
+- [Ten <!-- omit from toc -->](#ten----omit-from-toc---)
+  - [Plans <!-- omit from toc -->](#plans----omit-from-toc---)
+  - [Introduction <!-- omit from toc -->](#introduction----omit-from-toc---)
+  - [Summary](#summary)
+  - [Content Files](#content-files)
+    - [??? Things](#-things)
+    - [File Formats](#file-formats)
+      - [HTML Files](#html-files)
+      - [Markdown Files](#markdown-files)
+      - [XML Files](#xml-files)
+      - [Other Files](#other-files)
+    - [Special File Names](#special-file-names)
+  - [Project JavaScript Customization](#project-javascript-customization)
+  - [Page JavaScript Customization](#page-javascript-customization)
+  - [Directory Structure](#directory-structure)
+    - [`build/`](#build)
+    - [`content/`](#content)
+      - [`content/pages/`](#contentpages)
+      - [`content/posts/`](#contentposts)
+      - [`content/til/`](#contenttil)
+    - [`layouts/`](#layouts)
+    - [`partials/`](#partials)
+    - [`static/`](#static)
+    - [Older Ideas](#older-ideas)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
 # Ten <!-- omit from toc -->
 
 Ten will be / is a static site generator / content management system / web framework solution. I created it because:
@@ -19,13 +50,12 @@ Ten will be / is a static site generator / content management system / web frame
 
 - [Summary](#summary)
 - [Content Files](#content-files)
-  - [File Formats](#file-formats)
+  - [Supported Formats](#supported-formats)
     - [HTML Files](#html-files)
     - [Markdown Files](#markdown-files)
     - [XML Files](#xml-files)
-  - [Non-entrypoint Content Files](#non-entrypoint-content-files)
+- [Project JavaScript Customization](#project-javascript-customization)
 - [Page JavaScript Customization](#page-javascript-customization)
-- [Route JavaScript Customization](#route-javascript-customization)
 - [Directory Structure](#directory-structure)
   - [`build/`](#build)
   - [`content/`](#content)
@@ -73,15 +103,15 @@ This makes it easier to edit files in IDEs (unlike Next.js's `page.js`).
 
 - Excalidraw `.json` files
 
-### File Formats
+### Supported Formats
 
 The following formats are supported:
 
-#### HTML Files
+#### HTML
 
 These are processed with the templating engine [Handlebars](https://handlebarsjs.com).
 
-#### Markdown Files
+#### Markdown
 
 Markdown files support the following features:
 
@@ -89,7 +119,7 @@ Markdown files support the following features:
 - Emoji conversion
 - KaTeX
 
-#### XML Files
+#### XML
 
 TODO: No special processing will be done
 
@@ -113,16 +143,21 @@ These are treated as "draft" and only be published when serving the files with t
 
 These are ignored.
 
+## Project JavaScript Customization
+
+- `defaults`
+- `transformUri()`
+- `decideLayout()`
+- `validateFrontmatter()`
+- `handlebearsHelpers`
+- `tenHelpers`
+
 ## Page JavaScript Customization
 
 - `Meta()`
 - `Header()`
 - `GenerateSlugMapping()`
 - `GenerateTemplateVariables()`
-
-## Route JavaScript Customization
-
-TODO: Something like `IgnoredFiles()` to customize what files are ignored. Maybe other things. `ten.js`?
 
 ## Directory Structure
 

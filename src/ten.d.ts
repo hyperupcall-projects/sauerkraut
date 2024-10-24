@@ -8,8 +8,8 @@ export type Options = {
 export type Page = {
     inputFile: string,
     inputUri: string,
-    tenFile: typeof TenFile,
-    tenRoute: typeof TenRoute,
+    tenFile: TenFile,
+    tenRoute: TenRoute,
     parameters: Record<PropertyKey, any>,
     outputUri: string
 }
@@ -27,9 +27,7 @@ export type Frontmatter = {
 export type Config = {
     defaults: {
         title: string,
-        layout: string,
         rootDir: string,
-        cacheFile: string,
         contentDir: string,
         layoutDir: string,
         partialDir: string,
@@ -39,7 +37,7 @@ export type Config = {
 
     transformUri(uri: string): string,
 
-    getLayout(config: Config, options: Options, page: Page): string | Promise<string>,
+    decideLayout(config: Config, options: Options, page: Page): string | Promise<string>,
 
     validateFrontmatter(inputFile: string, frontmatter: Frontmatter): Frontmatter,
 
