@@ -34,11 +34,11 @@ export { consola }
 
 /**
  * @typedef {import('handlebars')} Handlebars
- * @typedef {import('./ten.d.ts').TenFile} TenFile
- * @typedef {import('./ten.d.ts').TenRoute} TenRoute
- * @typedef {import('./ten.d.ts').Options} Options
- * @typedef {import('./ten.d.ts').Page} Page
- * @typedef {import('./ten.d.ts').Frontmatter} Frontmatter
+ * @typedef {import('./types.d.ts').TenFile} TenFile
+ * @typedef {import('./types.d.ts').TenRoute} TenRoute
+ * @typedef {import('./types.d.ts').Options} Options
+ * @typedef {import('./types.d.ts').Page} Page
+ * @typedef {import('./types.d.ts').Frontmatter} Frontmatter
  */
 
 function getConfigSchema(/** @type {string} */ rootDir) {

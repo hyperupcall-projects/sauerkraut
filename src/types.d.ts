@@ -1,29 +1,3 @@
-export type Options = {
-    dir: string,
-    command: 'serve' | 'watch' | 'build' | 'new',
-    clean: boolean,
-    verbose: boolean
-}
-
-export type Page = {
-    inputFile: string,
-    inputUri: string,
-    tenFile: TenFile,
-    tenRoute: TenRoute,
-    parameters: Record<PropertyKey, any>,
-    outputUri: string
-}
-
-export type Frontmatter = {
-    title?: string,
-    author?: string,
-    date?: string,
-    layout?: string,
-    slug?: string,
-    categories?: string[],
-    tags?: string[]
-}
-
 export type Config = {
     defaults: {
         title: string,
@@ -60,6 +34,32 @@ export type TenRoute = {
     slug?: string
 }
 
+export type Options = {
+    dir: string,
+    command: 'serve' | 'watch' | 'build' | 'new',
+    clean: boolean,
+    verbose: boolean
+}
+
+export type Page = {
+    inputFile: string,
+    inputUri: string,
+    tenFile: TenFile,
+    tenRoute: TenRoute,
+    parameters: Record<PropertyKey, any>,
+    outputUri: string
+}
+
+export type Frontmatter = {
+    title?: string,
+    author?: string,
+    date?: string,
+    layout?: string,
+    slug?: string,
+    categories?: string[],
+    tags?: string[]
+}
+
 type TenJsMeta = {
     slug?: string,
     layout?: string
@@ -69,5 +69,3 @@ type TenJsSlugMapping = Array<{
     slug: string,
     count: number
 }>
-
-export {}

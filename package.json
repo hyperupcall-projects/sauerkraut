@@ -7,8 +7,8 @@
 	"bin": {
 		"ten": "./bin/ten.js"
 	},
+	"types": "./src/types.d.ts",
 	"keywords": [],
-	"author": "Edwin Kofler <edwin@kofler.dev> (https://edwinkofler.com/)",
 	"license": "MPL-2.0",
 	"dependencies": {
 		"@shikijs/markdown-it": "^1.21.0",
@@ -23,5 +23,25 @@
 		"mime-types": "^2.1.35",
 		"smol-toml": "^1.3.0",
 		"valibot": "^0.42.1"
+	},
+	"scripts": {
+		"lint": "hyperupcall-scripts-nodejs lint",
+		"format": "hyperupcall-scripts-nodejs format"
+	},
+	"devDependencies": {
+		"@hyperupcall/scripts-nodejs": "0.2.1"
+	},
+	"markdownlint-cli2": {
+		"extends": "./node_modules/@hyperupcall/markdownlint-config/.markdownlint.json"
+	},
+	"private": false,
+	"prettier": "@hyperupcall/scripts-nodejs/config-prettier.js",
+	"author": "Edwin Kofler <edwin@kofler.dev> (https://edwinkofler.com)",
+	"bugs": {
+		"url": "https://github.com/fox-incubating/ten/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/fox-incubating/ten"
 	}
 }
