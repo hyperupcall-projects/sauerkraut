@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // @ts-check
 import fs from 'node:fs/promises'
-import fss from 'node:fs'
+import { createWriteStream } from 'node:fs'
 import path from 'node:path'
 import util from 'node:util'
 import url from 'node:url'
@@ -27,6 +27,7 @@ import {
 import mime from 'mime-types'
 import ansiEscapes from 'ansi-escapes'
 import * as v from 'valibot'
+import chalk from 'chalk'
 
 import { markedLinks } from './marked.js'
 
@@ -56,7 +57,7 @@ function getConfigSchema(/** @type {string} */ rootDir) {
 			return (/** @type {string} */ uri) => v.parse(v.string(), func(uri))
 		}))),
 		decideLayout: v.optional(v.pipe(v.function(), v.transform((func) => {
-			return async (/** @type {Config} */ config, /** @type {Options} */ options, /** @type {Page} */ page) => v.parse(v.string(), await func(config, options, page))
+			return async (/** @type {Config} */ config, /** @type {Options} */ options, /** @type {Page} */ page) => v.parse(v.union([v.undefined(), v.string()]), await func(config, options, page))
 		})), () => () => '__default.hbs'),
 		validateFrontmatter: v.optional(v.pipe(
 			v.function(),
@@ -200,52 +201,56 @@ async function commandServe(/** @type {Config} */ config, /** @type {Options} */
 
 				setResponseHeaders(event, {
 					'Content-Type': mime.lookup(outputUri) || 'text/html',
+					'Transfer-Encoding': 'chunked',
 					'Cache-Control': 'no-cache',
 					Expires: '0',
-					'Transfer-Encoding': 'chunked',
 				})
 
 				if (inputUri) {
-					// TODO: Fix this
-					let content = ''
-					const writable2 = new WritableStream({
-						write(chunk) {
-							content += chunk
-						},
-					})
-
 					const inputFile = path.join(config?.defaults.contentDir, inputUri)
+					console.log(
+						`${chalk.magenta('Content Request')}: ${event.path}\t\t\t${chalk.gray(`(from ${event.path})`)}`
+					)
+
 					for await (const page of yieldPagesFromInputFile(
 						config, options,
 						inputFile
 					)) {
-						const rootRelUri = path.relative(
-							options.dir,
-							path.join(config?.defaults.contentDir, page.inputUri)
-						)
-						consola.info(
-							`Request (content): ${event.path}  -> ${rootRelUri}`
-						)
+						const result = await handleContentFile(config, options, page)
+						if (typeof result === 'string') {
+							return result
+						} else {
+							return serveStatic(event, {
+								getContents(uri) {
+									return fs.readFile(page.inputFile)
+								},
+								async getMeta(uri) {
+									const stats = await fs
+									.stat(page.inputFile)
+									.catch(() => null)
 
-						await handleContentFile(config, options, page, writable2)
+									if (!stats?.isFile()) {
+										return
+									}
+
+									return {
+										size: stats.size,
+										mtime: stats.mtimeMs,
+									}
+								},
+							})
+						}
 					}
-
-					const readable2 = Readable.from(content)
-					return sendStream(event, readable2)
 				} else {
-					const rootRelUri = path.relative(
-						options.dir,
-						path.join(config?.defaults.staticDir, event.path)
-					)
-					consola.info('Request (static):', rootRelUri)
+					console.log(`${chalk.cyan('Static Request')}:  ${event.path}`)
 
 					return serveStatic(event, {
-						getContents(id) {
-							return fs.readFile(path.join(config?.defaults.staticDir, id))
+						getContents(uri) {
+							return fs.readFile(path.join(config?.defaults.staticDir, uri))
 						},
-						async getMeta(id) {
+						async getMeta(uri) {
 							const stats = await fs
-								.stat(path.join(config?.defaults.staticDir, id))
+								.stat(path.join(config?.defaults.staticDir, uri))
 								.catch(() => null)
 
 							if (!stats?.isFile()) {
@@ -357,8 +362,13 @@ async function iterateFileQueueByCallback(
 				const outputUrl = path.join(config?.defaults.outputDir, page.outputUri)
 
 				await fs.mkdir(path.dirname(outputUrl), { recursive: true })
-				const outputStream = fss.createWriteStream(outputUrl)
-				await handleContentFile(config, options, page, Writable.toWeb(outputStream))
+				const result = await handleContentFile(config, options, page)
+				if (result === undefined) {
+				} else if (result === null) {
+					await fs.copyFile(inputFile, outputFile)
+				} else {
+					await fs.writeFile(outputFile, result)
+				}
 			}
 
 			FileQueue.splice(0, 1)
@@ -378,11 +388,16 @@ async function iterateFileQueueByWhileLoop(/** @type {Config} */ config, /** @ty
 	while (FileQueue.length > 0) {
 		const inputFile = path.join(config?.defaults.contentDir, FileQueue[0])
 		for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-			const outputUrl = path.join(config?.defaults.outputDir, page.outputUri)
+			const outputFile = path.join(config?.defaults.outputDir, page.outputUri)
 
-			await fs.mkdir(path.dirname(outputUrl), { recursive: true })
-			const outputStream = fss.createWriteStream(outputUrl)
-			await handleContentFile(config, options, page, Writable.toWeb(outputStream))
+			await fs.mkdir(path.dirname(outputFile), { recursive: true })
+			const result = await handleContentFile(config, options, page)
+			if (result === undefined) {
+			} else if (result === null) {
+				await fs.copyFile(inputFile, outputFile)
+			} else {
+				await fs.writeFile(outputFile, result)
+			}
 		}
 
 		FileQueue.splice(0, 1)
@@ -444,14 +459,8 @@ async function* yieldPagesFromInputFile(
 
 async function handleContentFile(
 	/** @type {Config} */ config, /** @type {Options} */ options,
-	/** @type {Page} */ page,
-	/** @type {WritableStream} */ outputStream
+	/** @type {Page} */ page
 ) {
-	if (!page.inputUri) {
-		consola.warn(`No content file found for ${page.inputUri}`)
-		return
-	}
-
 	// TODO
 	let titleOverride
 	HandlebarsInstance.registerHelper('setVariable', function setVariable(varName, varValue, options){
@@ -461,8 +470,6 @@ async function handleContentFile(
 		}
 	})
 
-	console.info(`Processing "${ansiEscapes.link(page.inputUri, page.inputFile)}..."`)
-	let didProcess = true
 	if (
 		// prettier-ignore
 		page.inputUri.includes('/_') ||
@@ -473,8 +480,6 @@ async function handleContentFile(
 		// Do not copy file.
 	} else if (page.inputUri.includes('/drafts/')) {
 		// Do not copy file.
-		// TODO: This should be replaced with something
-		didProcess = false
 	} else if (page.inputUri.endsWith('.md')) {
 		let markdown = await fs.readFile(
 			path.join(config?.defaults.contentDir, page.inputUri),
@@ -511,7 +516,7 @@ async function handleContentFile(
 			__inputUri: page.inputUri,
 		})
 
-		await outputStream.getWriter().write(templatedHtml)
+		return templatedHtml
 	} else if (
 		page.inputUri.endsWith('.html') ||
 		page.inputUri.endsWith('.xml')
@@ -544,7 +549,7 @@ async function handleContentFile(
 			__inputUri: page.inputUri,
 		})
 
-		await outputStream.getWriter().write(templatedHtml)
+		return templatedHtml
 	} else if (page.inputUri.endsWith('.cards.json')) {
 		let json = await fs.readFile(
 			path.join(config?.defaults.contentDir, page.inputUri),
@@ -561,17 +566,9 @@ async function handleContentFile(
 			__flashcard_data: json
 		})
 
-		await outputStream.getWriter().write(templatedHtml)
+		return templatedHtml
 	} else {
-		// TODO
-		// const readable = Readable.toWeb(fss.createReadStream(page.inputFile))
-		// readable.pipeTo(outputStream)
-		const content = await fs.readFile(page.inputFile, 'utf-8')
-		outputStream.getWriter().write(content)
-	}
-
-	if (didProcess) {
-		console.info(`  -> Writing to "${ansiEscapes.link(page.outputUri, page.inputFile)}"`)
+		return null
 	}
 }
 
@@ -605,7 +602,7 @@ async function fsPopulateContentMap(/** @type {Config} */ config, /** @type {Opt
 			} else if (entry.isFile()) {
 				const inputFile = path.join(entry.parentPath, entry.name)
 				for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-					console.info(`Adding "${ansiEscapes.link(page.outputUri, inputFile)}"`)
+					console.info(`${chalk.gray(`Adding ${ansiEscapes.link(page.outputUri, inputFile)}`)}`)
 					ContentMap.set(page.outputUri, page.inputUri)
 				}
 			}

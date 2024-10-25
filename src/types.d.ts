@@ -27,7 +27,7 @@ export type TenFile = {
 
     GenerateSlugMapping?({ config: Config, options: Options }): Promise<TenJsSlugMapping>
 
-    GenerateTemplateVariables?({ config: Config, options: Options}): Promise<Record<PropertyKey, any>>
+    GenerateTemplateVariables?(arg0: { config: Config, options: Options}, arg1: Record<PropertyKey, unknown>): Promise<Record<PropertyKey, any>>
 }
 
 export type TenRoute = {

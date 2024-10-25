@@ -13,6 +13,7 @@
 	"dependencies": {
 		"@shikijs/markdown-it": "^1.21.0",
 		"ansi-escapes": "^7.0.0",
+		"chalk": "^5.3.0",
 		"consola": "^3.2.3",
 		"h3": "^1.12.0",
 		"handlebars": "^4.7.8",
@@ -25,6 +26,8 @@
 		"valibot": "^0.42.1"
 	},
 	"scripts": {
+		"test": "node --import ./src/register.js ./src/test.js",
+		"test:only": "node --import ./src/register.js --test-only ./src/test.js",
 		"lint": "hyperupcall-scripts-nodejs lint",
 		"format": "hyperupcall-scripts-nodejs format"
 	},
