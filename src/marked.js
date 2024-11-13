@@ -9,10 +9,7 @@ export function markedLinks(md, options) {
 	md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
 		const href = tokens[idx].attrGet('href')
 
-		if (
-			(href.startsWith('/') && !href.startsWith('//')) ||
-			href.startsWith('#')
-		) {
+		if ((href.startsWith('/') && !href.startsWith('//')) || href.startsWith('#')) {
 			tokens[idx].attrSet('target', '_self')
 		} else {
 			tokens[idx].attrSet('target', '_blank')

@@ -2,8 +2,11 @@
 
 Ten will be / is a static site generator / content management system / web framework solution. I created it because:
 
-- Any current framework (Hugo, Zola, etc.) will eventually go the way of Jekyll
-- It's easier to hack on and add bespoke functionality
+- I want my website code to last for decades
+  - Frameworks like Hugo, Zola, etc. will eventually go the way of Jekyll
+  - Migrating working code is a waste of time
+- It's easier to implement bespoke features
+  - I have a lot of cool ideas that use [knowledge tools](https://github.com/fox-lists/catalog-knowledge-tools)
 
 ## Plans <!-- omit from toc -->
 
@@ -22,8 +25,8 @@ Ten will be / is a static site generator / content management system / web frame
   - [Supported Formats](#supported-formats)
     - [HTML Files](#html-files)
     - [Markdown Files](#markdown-files)
-    - [XML Files](#xml-files)
-- [Project JavaScript Customization](#project-javascript-customization)
+  - [Special File Names](#special-file-names)
+- [Website JavaScript Customization](#website-javascript-customization)
 - [Page JavaScript Customization](#page-javascript-customization)
 - [Directory Structure](#directory-structure)
   - [`build/`](#build)
@@ -38,13 +41,13 @@ Ten will be / is a static site generator / content management system / web frame
 
 ## Summary
 
-Ten is a static site generator. Conventionally, it reads input files from `content/`; for each file, it is processed, then written to `build/`. When processing each file, it transforms both its path and content.
-
-When walking the content directory, every file is associated with either a route or ignored. The name of a file can change it's route, or if it's ignored.
+Ten is a static site generator. Conventionally, it recursively reads input files from `content/`. Then, it processes each file path and content. Finally, it writes the result path and content to `build/`.
 
 ## Content Files
 
-Content files are any files located in the content directory. Transformations are done to file paths in two cases:
+Content files are any files located in the content directory that aren't [special](#special-file-names).
+
+Transformations are done to file paths in two cases:
 
 1. If a file ends with `.md` (or similar) files, it is converted into a `.html` file.
 
@@ -57,28 +60,19 @@ Content files are any files located in the content directory. Transformations ar
 
 This makes it easier to edit files in IDEs (unlike Next.js's `page.js`).
 
-### ??? Things
-
-**Run once and cached files**
-
-- `.py`, `.js` files used in "markdown fence"
-
-**services things**
-
-- A route is dedicated to playing around with postgres and showing output
-- Be able to manage postgres with docker/nix and make it "reproducable"
-
-**other services**
-
-- Excalidraw `.json` files
-
 ### Supported Formats
 
 The following formats are supported:
 
-#### HTML
+#### HTML, XML
 
 These are processed with the templating engine [Handlebars](https://handlebarsjs.com).
+
+Templates have access to the following variables:
+
+- `Page` (layouts & partials, pages)
+- `Title` (layouts & partials, pages)
+- `Body` (layouts & partials)
 
 #### Markdown
 
@@ -88,31 +82,27 @@ Markdown files support the following features:
 - Emoji conversion
 - KaTeX
 
-#### XML
-
-TODO: No special processing will be done
-
-#### Other Files
-
-- Handlebars
-
 ### Special File Names
 
-Some file names are treated specially. (TODO: handle directory case)
+Special file modify behavior and are not processed. They include:
 
 - `*.ten.js`
 
-These are ignored and processed as described in [JavaScript Customization](#javascript-customization)
+Described further in [JavaScript Customization](#website-javascript-customization)
 
 - `_*`
 
-These are treated as "draft" and only be published when serving the files with the development server.
+These are ignored.
 
 - `*_`
 
 These are ignored.
 
-## Project JavaScript Customization
+## Website JavaScript Customization
+
+This file potentially customizes the behavior of the whole website. To be recognized, its name must be `/ten.config.js`.
+
+It can export:
 
 - `defaults`
 - `transformUri()`
@@ -123,8 +113,12 @@ These are ignored.
 
 ## Page JavaScript Customization
 
+This file potentially customizes the behavior of a single page. To be recognized, its name must match `/**/<adjacentFileName>.ten.js`.
+
+It can export:
+
 - `Meta()`
-- `Header()`
+- `Head()`
 - `GenerateSlugMapping()`
 - `GenerateTemplateVariables()`
 
@@ -139,16 +133,6 @@ Where output files are written to.
 ### `content/`
 
 User-generated content. There are several variants:
-
-#### `content/pages/`
-
-Contains directories and files that each represent an individual page. For example, the directory `/pages/about` represents `/about/index.html` while the file `pages/index.xml` represents `/index.xml`.
-
-#### `content/posts/`
-
-Contains subdirectories with a dirname of either (1) a year (ex. `2005`) or (2) the value `drafts`. The subdirectories of those subdirectories represent an individual page (ex. `posts/2023/oppenheimer-movie-review`). Drafts are automatically shown when running the development server and automatically hidden when building the blog, unless indicated otherwise by the `--show-drafts` command-line flag.
-
-#### `content/til/`
 
 ### `layouts/`
 

@@ -1,19 +1,35 @@
 {
 	"name": "@hyperupcall/ten",
 	"version": "0.3.1",
-	"description": "",
-	"main": "index.js",
 	"type": "module",
+	"description": "",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/fox-incubating/ten"
+	},
+	"bugs": {
+		"url": "https://github.com/fox-incubating/ten/issues"
+	},
+	"author": "Edwin Kofler <edwin@kofler.dev> (https://edwinkofler.com)",
+	"license": "MPL-2.0",
+	"private": false,
 	"bin": {
 		"ten": "./bin/ten.js"
 	},
+	"main": "index.js",
 	"types": "./src/types.d.ts",
 	"keywords": [],
-	"license": "MPL-2.0",
+	"scripts": {
+		"format": "hyperupcall-scripts-nodejs format",
+		"lint": "hyperupcall-scripts-nodejs lint",
+		"test": "node --import ./src/register.js ./src/test.js",
+		"test:only": "node --import ./src/register.js --test-only ./src/test.js"
+	},
 	"dependencies": {
 		"@shikijs/markdown-it": "^1.21.0",
 		"ansi-escapes": "^7.0.0",
 		"chalk": "^5.3.0",
+		"cheerio": "^1.0.0",
 		"consola": "^3.2.3",
 		"h3": "^1.12.0",
 		"handlebars": "^4.7.8",
@@ -25,26 +41,11 @@
 		"smol-toml": "^1.3.0",
 		"valibot": "^0.42.1"
 	},
-	"scripts": {
-		"test": "node --import ./src/register.js ./src/test.js",
-		"test:only": "node --import ./src/register.js --test-only ./src/test.js",
-		"lint": "hyperupcall-scripts-nodejs lint",
-		"format": "hyperupcall-scripts-nodejs format"
-	},
 	"devDependencies": {
 		"@hyperupcall/scripts-nodejs": "0.2.1"
 	},
 	"markdownlint-cli2": {
 		"extends": "./node_modules/@hyperupcall/markdownlint-config/.markdownlint.json"
 	},
-	"private": false,
-	"prettier": "@hyperupcall/scripts-nodejs/config-prettier.js",
-	"author": "Edwin Kofler <edwin@kofler.dev> (https://edwinkofler.com)",
-	"bugs": {
-		"url": "https://github.com/fox-incubating/ten/issues"
-	},
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/fox-incubating/ten"
-	}
+	"prettier": "@hyperupcall/scripts-nodejs/config-prettier.js"
 }

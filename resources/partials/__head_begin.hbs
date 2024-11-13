@@ -3,5 +3,9 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<meta name="referrer" content="same-origin" />
 
-	<title>{{ __header_title }}</title>
+	{{#if Title}}
+	<title>{{ Title }}</title>
+	{{/if}}
+	{{#if __header_content}}
 	{{ __header_content }}
+	{{/if}}

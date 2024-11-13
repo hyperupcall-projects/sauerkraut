@@ -1,95 +1,132 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <title>Flashcards</title>
-    <style>
-        .count {
-            font-size: 18px;
-        }
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Flashcards</title>
+		<style>
+			.count {
+				font-size: 24px;
+				text-align: center;
+			}
 
-        .unit {
-            display: flex;
-            align-items: center;
-        }
+			.unit {
+				display: flex;
+				align-items: center;
+			}
 
-        .flashcard {
-            background-color: aliceblue;
-            border: 1px solid #333;
-            width: 400px;
-            height: 160px;
-            text-align: center;
-            padding-block-start: 40px;
-            font-size: 64px;
-        }
+			.flashcard-outer {
+				display: flex;
+				justify-content: center;
+				width: 640px;
+				height: 320px;
+				background-color: aliceblue;
+				border: 1px solid #333;
+			}
 
-        button {
-            margin: 1px 2px;
-            padding: 6px 12px;
-        }
-    </style>
-  </head>
-  <body>
-    <a href="/">Go Home</a>
-    <hr>
-    <h1>Flashcard</h1>
-    <h2 class="title"></h2>
-    <h3 class="author"></h3>
+			.flashcard {
+				font-size: 64px;
+			}
 
-    <p class='count'></p>
-    <div class="unit">
-        <button class='previous'>Previous</button>
-        <div class="flashcard"></div>
-        <button class='next'>Next</button>
-    </div>
-    <button class='flip'>Flip</button>
-  </body>
-  <script>
-    globalThis.data = JSON.parse(`
+			button {
+				margin: 1px 2px;
+				padding: 12px 24px;
+				font-size: 24px;
+			}
+
+			dl {
+				font-size: 24px;
+			}
+			dt {
+				border-block-start: 1px solid #333;
+			}
+
+			dd {
+				margin-inline-start: 50px;
+			}
+		</style>
+	</head>
+	<body>
+		<a href="/">Go Home</a>
+		<hr />
+		<h1>Flashcard</h1>
+		<h2 class="title"></h2>
+		<h3 class="author"></h3>
+
+		<p class="count"></p>
+		<div class="unit">
+			<button class="previous">Previous</button>
+			<div class="flashcard-outer"><span class="flashcard"></span></div>
+			<button class="next">Next</button>
+		</div>
+		<button class="flip">Flip</button>
+		<button class="random">Random</button>
+
+		<h2>Individual Ones</h2>
+		<div class="list"></div>
+	</body>
+	<script>
+		globalThis.data = JSON.parse(`
 {{__flashcard_data}}
 `)
-  </script>
-    <script>
-        const flashcardData = globalThis.data
-        const titleEl = document.querySelector('.title')
-        const authorEl = document.querySelector('.author')
-        const countEl = document.querySelector('.count')
-        const flashcardEl = document.querySelector('.flashcard')
+	</script>
+	<script>
+		const flashcardData = globalThis.data
+		const titleEl = document.querySelector('.title')
+		const authorEl = document.querySelector('.author')
+		const countEl = document.querySelector('.count')
+		const flashcardEl = document.querySelector('.flashcard')
 
-        titleEl.textContent = flashcardData.title
-        authorEl.textContent = flashcardData.author
+		titleEl.textContent = flashcardData.title
+		authorEl.textContent = flashcardData.author
 
-        let idx = 0
-        let side = 'front'
+		let idx = 0
+		let side = 'front'
 
-        function setContent() {
-            flashcardEl.textContent = flashcardData.flashcards[idx][side]
-            countEl.textContent = `Card ${idx+1}/${flashcardData.flashcards.length}`
-        }
-        setContent()
+		function setContent() {
+			flashcardEl.textContent = flashcardData.flashcards[idx][side]
+			countEl.textContent = `Card ${idx + 1}/${flashcardData.flashcards.length}`
+		}
+		setContent()
 
-        document.querySelector('.previous').addEventListener('click', () => {
-            if (idx > 0) {
-                idx = idx - 1
-                setContent()
-            }
-        })
-        document.querySelector('.next').addEventListener('click', () => {
-            if (idx < flashcardData.flashcards.length - 1) {
-                idx = idx + 1
-                setContent()
-            }
-        })
-        document.querySelector('.flip').addEventListener('click', () => {
-            if (side === 'front') {
-                side = 'back'
-            }
-            else if (side === 'back') {
-                side = 'front'
-            }
-            setContent()
-        })
-    </script>
+		document.querySelector('.previous').addEventListener('click', () => {
+			if (idx > 0) {
+				idx = idx - 1
+				setContent()
+			}
+		})
+		document.querySelector('.next').addEventListener('click', () => {
+			if (idx < flashcardData.flashcards.length - 1) {
+				idx = idx + 1
+				setContent()
+			}
+		})
+		document.querySelector('.flip').addEventListener('click', () => {
+			if (side === 'front') {
+				side = 'back'
+			} else if (side === 'back') {
+				side = 'front'
+			}
+			setContent()
+		})
+		document.querySelector('.random').addEventListener('click', () => {
+			idx = Math.floor(Math.random() * flashcardData.flashcards.length)
+			setContent()
+		})
+
+		const listEl = document.querySelector('.list')
+		for (let i = 0; i < flashcardData.flashcards.length; ++i) {
+			const flashcard = flashcardData.flashcards[i]
+			const dtEl = document.createElement('dt')
+			const ddEl = document.createElement('dd')
+
+			dtEl.innerText = String(i + 1) + ': ' + flashcard.front
+			ddEl.innerText = flashcard.back
+
+			const dlEl = document.createElement('dl')
+			dlEl.appendChild(dtEl)
+			dlEl.appendChild(ddEl)
+			listEl.appendChild(dlEl)
+		}
+	</script>
 </html>

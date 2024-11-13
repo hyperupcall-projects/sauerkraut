@@ -37,7 +37,7 @@ const Ctx = Object.freeze({
 		},
 		getLayout(
 			/** @type {Record<PropertyKey, unknown>} */ frontmatter,
-			/** @type {ContentForm} */ contentForm
+			/** @type {ContentForm} */ contentForm,
 		) {
 			return Buffer.from(
 				dedent`
@@ -50,13 +50,13 @@ const Ctx = Object.freeze({
 					<body>
 						{{__body}}
 					</body>
-					</html>\n`
+					</html>\n`,
 			)
 		},
 		validateFrontmatter(
 			/** @type {string} */ inputFile,
 			/** @type {Partial<Frontmatter>} */ frontmatter,
-			/** @type {ContentForm} */ contentForm
+			/** @type {ContentForm} */ contentForm,
 		) {
 			return frontmatter
 		},
@@ -408,12 +408,9 @@ suite('ten.js validation checks', async () => {
 					export function Meta() {}\n`,
 		})
 
-		await assertThrownErrorWithMessage(
-			'No entrypoint found for file',
-			async () => {
-				await commandBuild(Ctx)
-			}
-		)
+		await assertThrownErrorWithMessage('No entrypoint found for file', async () => {
+			await commandBuild(Ctx)
+		})
 	})
 
 	/**
@@ -477,9 +474,7 @@ async function assertFiles(/** @type {Record<string, string>} */ assertObject) {
 				} else if (assertValue instanceof RegExp) {
 					assert.ok(assertValue.test(content))
 				} else {
-					throw new Error(
-						`User-supplied assert object could not be evaluated`
-					)
+					throw new Error(`User-supplied assert object could not be evaluated`)
 				}
 			} else {
 				assert.fail(`File ${filename} does not exist (but should)`)
@@ -494,7 +489,7 @@ async function assertFiles(/** @type {Record<string, string>} */ assertObject) {
 
 async function assertThrownErrorWithMessage(
 	/** @type {string} */ errorMessage,
-	/** @type {() => void | Promise<void>} */ fn
+	/** @type {() => void | Promise<void>} */ fn,
 ) {
 	try {
 		await fn(Ctx)
@@ -502,9 +497,7 @@ async function assertThrownErrorWithMessage(
 	} catch (err) {
 		if (err instanceof Error) {
 			if (!err.message.includes(errorMessage)) {
-				assert.fail(
-					`Expected thrown error to include the string: ${errorMessage}`
-				)
+				assert.fail(`Expected thrown error to include the string: ${errorMessage}`)
 			}
 		} else {
 			assert.fail('Expected an error to be thrown (a non-error was thrown')

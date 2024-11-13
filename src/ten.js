@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 // @ts-check
 import fs from 'node:fs/promises'
-import { createWriteStream } from 'node:fs'
 import path from 'node:path'
 import util from 'node:util'
 import url from 'node:url'
 import readline from 'node:readline'
-import { Readable, Writable } from 'node:stream'
 
 import TOML from 'smol-toml'
 import handlebarsImport from 'handlebars'
@@ -28,18 +26,13 @@ import mime from 'mime-types'
 import ansiEscapes from 'ansi-escapes'
 import * as v from 'valibot'
 import chalk from 'chalk'
-
-import { markedLinks } from './marked.js'
+import * as cheerio from 'cheerio'
 
 export { consola }
 
 /**
  * @typedef {import('handlebars')} Handlebars
- * @typedef {import('./types.d.ts').TenFile} TenFile
- * @typedef {import('./types.d.ts').TenRoute} TenRoute
- * @typedef {import('./types.d.ts').Options} Options
- * @typedef {import('./types.d.ts').Page} Page
- * @typedef {import('./types.d.ts').Frontmatter} Frontmatter
+ * @import { TenFile, TenRoute, Options, Page, Frontmatter } from './types.d.ts'
  */
 
 function getConfigSchema(/** @type {string} */ rootDir) {
@@ -51,22 +44,49 @@ function getConfigSchema(/** @type {string} */ rootDir) {
 			layoutDir: v.optional(v.string(), path.join(rootDir, 'layouts')),
 			partialDir: v.optional(v.string(), path.join(rootDir, 'partials')),
 			staticDir: v.optional(v.string(), path.join(rootDir, 'static')),
-			outputDir: v.optional(v.string(), path.join(rootDir, 'build'))
+			outputDir: v.optional(v.string(), path.join(rootDir, 'build')),
 		}),
-		transformUri: v.optional(v.pipe(v.function(), v.transform((func) => {
-			return (/** @type {string} */ uri) => v.parse(v.string(), func(uri))
-		}))),
-		decideLayout: v.optional(v.pipe(v.function(), v.transform((func) => {
-			return async (/** @type {Config} */ config, /** @type {Options} */ options, /** @type {Page} */ page) => v.parse(v.union([v.undefined(), v.string()]), await func(config, options, page))
-		})), () => () => '__default.hbs'),
-		validateFrontmatter: v.optional(v.pipe(
-			v.function(),
-			v.transform((func) => {
-				return (/** @type {Config} */ config, /** @type {string} */ inputFile, /** @type {Frontmatter} */ frontmatter) => v.parse(v.record(v.string(), v.any()), func(config, inputFile, frontmatter))
-			})
-		), () => () => true),
+		transformUri: v.optional(
+			v.pipe(
+				v.function(),
+				v.transform((func) => {
+					return (/** @type {string} */ uri) => v.parse(v.string(), func(uri))
+				}),
+			),
+		),
+		decideLayout: v.optional(
+			v.pipe(
+				v.function(),
+				v.transform((func) => {
+					return async (
+						/** @type {Config} */ config,
+						/** @type {Options} */ options,
+						/** @type {Page} */ page,
+					) =>
+						v.parse(
+							v.union([v.undefined(), v.string()]),
+							await func(config, options, page),
+						)
+				}),
+			),
+			() => () => '__default.hbs',
+		),
+		validateFrontmatter: v.optional(
+			v.pipe(
+				v.function(),
+				v.transform((func) => {
+					return (
+						/** @type {Config} */ config,
+						/** @type {string} */ inputFile,
+						/** @type {Frontmatter} */ frontmatter,
+					) =>
+						v.parse(v.record(v.string(), v.any()), func(config, inputFile, frontmatter))
+				}),
+			),
+			() => () => true,
+		),
 		handlebarsHelpers: v.optional(v.record(v.string(), v.function())),
-		tenHelpers: v.optional(v.record(v.string(), v.function()))
+		tenHelpers: v.optional(v.record(v.string(), v.function())),
 	})
 }
 
@@ -88,7 +108,6 @@ export const MarkdownItInstance = (() => {
 	})
 	md.use(ShikiInstance)
 	md.use(markdownEmoji)
-	md.use(markedLinks)
 	return md
 })()
 let /** @type {Handlebars} */ HandlebarsInstance = /** @type {any} */ (null)
@@ -125,11 +144,11 @@ export async function main() {
 		},
 	})
 	const /** @type {Options} */ options = {
-		dir: /** @type {string} */ (values.dir),
-		command: /** @type {Options['command']} */ (positionals[0]),
-		clean: /** @type {boolean} */ (values.clean), // TODO: Boolean not inferred
-		verbose: /** @type {boolean} */ (values.verbose),
-	}
+			dir: /** @type {string} */ (values.dir),
+			command: /** @type {Options['command']} */ (positionals[0]),
+			clean: /** @type {boolean} */ (values.clean), // TODO: Boolean not inferred
+			verbose: /** @type {boolean} */ (values.verbose),
+		}
 
 	if (!options.command) {
 		console.error(helpText)
@@ -142,7 +161,12 @@ export async function main() {
 		process.exit(0)
 	}
 
-	if (options.command !== 'serve' && options.command !== 'watch' && options.command !== 'build' && options.command !== 'new') {
+	if (
+		options.command !== 'serve' &&
+		options.command !== 'watch' &&
+		options.command !== 'build' &&
+		options.command !== 'new'
+	) {
 		console.error(helpText)
 		if (!positionals[0]) {
 			consola.error(`No command passed`)
@@ -152,9 +176,15 @@ export async function main() {
 		process.exit(1)
 	}
 
-	const configFile = path.join(process.cwd(), /** @type {string} */ (values.dir), 'ten.config.js')
+	const configFile = path.join(
+		process.cwd(),
+		/** @type {string} */ (values.dir),
+		'ten.config.js',
+	)
 	if (!(await utilFileExists('./ten.config.js'))) {
-		consola.error(`File "ten.config.js" not found for project: "${path.dirname(configFile)}"`)
+		consola.error(
+			`File "ten.config.js" not found for project: "${path.dirname(configFile)}"`,
+		)
 		process.exit(1)
 	}
 
@@ -181,7 +211,10 @@ export async function main() {
 	}
 }
 
-async function commandServe(/** @type {Config} */ config, /** @type {Options} */ options) {
+async function commandServe(
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+) {
 	await fsRegisterHandlebarsHelpers(config, options)
 	await fsPopulateContentMap(config, options)
 
@@ -209,13 +242,10 @@ async function commandServe(/** @type {Config} */ config, /** @type {Options} */
 				if (inputUri) {
 					const inputFile = path.join(config?.defaults.contentDir, inputUri)
 					console.log(
-						`${chalk.magenta('Content Request')}: ${event.path}\t\t\t${chalk.gray(`(from ${event.path})`)}`
+						`${chalk.magenta('Content Request')}: ${event.path}\t\t\t${chalk.gray(`(from ${event.path})`)}`,
 					)
 
-					for await (const page of yieldPagesFromInputFile(
-						config, options,
-						inputFile
-					)) {
+					for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
 						const result = await handleContentFile(config, options, page)
 						if (typeof result === 'string') {
 							return result
@@ -225,9 +255,7 @@ async function commandServe(/** @type {Config} */ config, /** @type {Options} */
 									return fs.readFile(page.inputFile)
 								},
 								async getMeta(uri) {
-									const stats = await fs
-									.stat(page.inputFile)
-									.catch(() => null)
+									const stats = await fs.stat(page.inputFile).catch(() => null)
 
 									if (!stats?.isFile()) {
 										return
@@ -267,7 +295,7 @@ async function commandServe(/** @type {Config} */ config, /** @type {Options} */
 			} catch (err) {
 				console.error(err)
 			}
-		})
+		}),
 	)
 
 	const listener = await listen(toNodeListener(app), {
@@ -281,11 +309,17 @@ async function commandServe(/** @type {Config} */ config, /** @type {Options} */
 	})
 }
 
-export async function commandWatch(/** @type {Config} */ config, /** @type {Options} */ options) {
+export async function commandWatch(
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+) {
 	console.log('watch')
 }
 
-export async function commandBuild(/** @type {Config} */ config, /** @type {Options} */ options) {
+export async function commandBuild(
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+) {
 	if (options.clean) {
 		await fsClearBuildDirectory(config, options)
 	}
@@ -325,7 +359,7 @@ async function commandNew(/** @type {Config} */ config, /** @type {Options} */ o
 	const markdownFile = path.join(
 		config?.defaults.contentDir,
 		'posts/drafts',
-		`${slug}/${slug}.md`
+		`${slug}/${slug}.md`,
 	)
 	await fs.mkdir(path.dirname(markdownFile), { recursive: true })
 	await fs.writeFile(
@@ -340,17 +374,16 @@ tags = []
 draft = true
 +++
 
-`
+`,
 	)
 	rl.close()
 	consola.info(`File created at ${markdownFile}`)
 }
 
 async function iterateFileQueueByCallback(
-	/** @type {Config} */ config, /** @type {Options} */ options,
-	{
-		onEmptyFileQueue = /** @type {() => void | Promise<void>} */ () => {},
-	} = {}
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+	{ onEmptyFileQueue = /** @type {() => void | Promise<void>} */ () => {} } = {},
 ) {
 	let lastCallbackWasEmpty = false
 	await cb()
@@ -384,7 +417,10 @@ async function iterateFileQueueByCallback(
 	}
 }
 
-async function iterateFileQueueByWhileLoop(/** @type {Config} */ config, /** @type {Options} */ options) {
+async function iterateFileQueueByWhileLoop(
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+) {
 	while (FileQueue.length > 0) {
 		const inputFile = path.join(config?.defaults.contentDir, FileQueue[0])
 		for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
@@ -408,15 +444,16 @@ async function iterateFileQueueByWhileLoop(/** @type {Config} */ config, /** @ty
 async function* yieldPagesFromInputFile(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
-	/** @type {string} */ inputFile
+	/** @type {string} */ inputFile,
 ) {
 	const inputUri = path.relative(config?.defaults.contentDir, inputFile)
 	const [tenFile, tenRoute] = await utilImportJs(config, options, inputFile)
 	const outputUri = await convertInputUriToOutputUri(
-		config, options,
+		config,
+		options,
 		inputUri,
 		tenFile,
-		tenRoute
+		tenRoute,
 	)
 
 	/** @type {Page} */
@@ -434,16 +471,15 @@ async function* yieldPagesFromInputFile(
 		const originalOutputUri = page.outputUri
 		for (const slug of slugMap) {
 			const data =
-				(await page.tenFile?.GenerateTemplateVariables?.({ config, options }, {
-					slug: slug.slug,
-					count: slug.count,
-				})) ?? {}
+				(await page.tenFile?.GenerateTemplateVariables?.(
+					{ config, options },
+					{
+						slug: slug.slug,
+						count: slug.count,
+					},
+				)) ?? {}
 
-			page.outputUri = path.join(
-				path.dirname(originalOutputUri),
-				slug.slug,
-				'index.html'
-			)
+			page.outputUri = path.join(path.dirname(originalOutputUri), slug.slug, 'index.html')
 			page.parameters = data
 
 			yield page
@@ -458,24 +494,35 @@ async function* yieldPagesFromInputFile(
 }
 
 async function handleContentFile(
-	/** @type {Config} */ config, /** @type {Options} */ options,
-	/** @type {Page} */ page
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+	/** @type {Page} */ page,
 ) {
+	/** @type {NonNullable<Parameters<typeof HandlebarsInstance.compile>[1]>} */
+	const defaultHandlebarsCompileOptions = {
+		noEscape: true,
+		// strict: true, // TODO
+		// ignoreStandalone: true,
+		// explicitPartialContext: true,
+	}
 	// TODO
 	let titleOverride
-	HandlebarsInstance.registerHelper('setVariable', function setVariable(varName, varValue, options){
-		options.data.root[varName] = varValue;
-		if (varName === '__title') {
-			titleOverride = varValue
-		}
-	})
+	HandlebarsInstance.registerHelper(
+		'setVariable',
+		function setVariable(varName, varValue, options) {
+			options.data.root[varName] = varValue
+			if (varName === '__title') {
+				titleOverride = varValue
+			}
+		},
+	)
 
 	if (
 		// prettier-ignore
-		page.inputUri.includes('/_') ||
+		(page.inputUri.includes('/_') ||
 		page.inputUri.includes('_/'),
 		path.parse(page.inputUri).name.endsWith('_') ||
-		page.inputUri.endsWith('.ten.js')
+		page.inputUri.endsWith('.ten.js'))
 	) {
 		// Do not copy file.
 	} else if (page.inputUri.includes('/drafts/')) {
@@ -483,7 +530,7 @@ async function handleContentFile(
 	} else if (page.inputUri.endsWith('.md')) {
 		let markdown = await fs.readFile(
 			path.join(config?.defaults.contentDir, page.inputUri),
-			'utf-8'
+			'utf-8',
 		)
 		const { html, frontmatter } = (() => {
 			let frontmatter = {}
@@ -494,85 +541,113 @@ async function handleContentFile(
 
 			return {
 				html: MarkdownItInstance.render(markdown),
-				frontmatter: /** @type {Frontmatter} */ (config.validateFrontmatter(
-					config,
-					path.join(config?.defaults.contentDir, page.inputUri),
-					frontmatter
-				)),
+				frontmatter: /** @type {Frontmatter} */ (
+					config.validateFrontmatter(
+						config,
+						path.join(config?.defaults.contentDir, page.inputUri),
+						frontmatter,
+					)
+				),
 			}
 		})()
 
-		const layout = await utilExtractLayout(config, options, [
+		const layoutInput = await utilExtractLayout(config, options, [
 			frontmatter?.layout,
 			await config?.decideLayout?.(config, options, page),
 			'__default.hbs',
 		])
-		const template = HandlebarsInstance.compile(layout, {
-			noEscape: true,
-		})
-		const templatedHtml = template({
-			__title: titleOverride ?? frontmatter.title,
-			__body: html,
-			__inputUri: page.inputUri,
+		const layoutOutput = HandlebarsInstance.compile(layoutInput, {
+			...defaultHandlebarsCompileOptions,
+		})({
+			Page: page,
+			Title: titleOverride ?? frontmatter.title,
+			Body: html,
+			__frontmatter: frontmatter,
+			__date: (() => {
+				// TODO
+				if (!frontmatter.date) {
+					return ''
+				}
+
+				const date = new Date(frontmatter.date)
+				return `${date.getFullYear()}-${date.getMonth()}-${date.getDay()}`
+			})(),
 		})
 
-		return templatedHtml
-	} else if (
-		page.inputUri.endsWith('.html') ||
-		page.inputUri.endsWith('.xml')
-	) {
-		let html = await fs.readFile(
-			path.join(config?.defaults.contentDir, page.inputUri),
-			'utf-8'
-		)
-		const template = HandlebarsInstance.compile(html, {
-			noEscape: true,
-		})
-		let templatedHtml = template({
-			...page.parameters,
-			__inputUri: page.inputUri,
-		})
+		return processHtml(layoutOutput)
+	} else if (page.inputUri.endsWith('.html') || page.inputUri.endsWith('.xml')) {
 		const meta = await page.tenFile?.Meta?.({ config, options })
-		const header = await page.tenFile?.Header?.(config, options)
-		const layout = await utilExtractLayout(config, options, [
+		const head = await page.tenFile?.Head?.({ config, options })
+		const title = head?.title ?? config?.defaults?.title ?? ''
+
+		let pageInput = await fs.readFile(
+			path.join(config?.defaults.contentDir, page.inputUri),
+			'utf-8',
+		)
+		const pageOutput = HandlebarsInstance.compile(pageInput, {
+			...defaultHandlebarsCompileOptions,
+		})({
+			Page: page,
+			Title: title,
+		})
+
+		const layoutInput = await utilExtractLayout(config, options, [
 			meta?.layout,
 			await config?.decideLayout?.(config, options, page),
 			'__default.hbs',
 		])
-
-		templatedHtml = HandlebarsInstance.compile(layout, {
-			noEscape: true,
+		const layoutOutput = HandlebarsInstance.compile(layoutInput, {
+			...defaultHandlebarsCompileOptions,
 		})({
-			__body: templatedHtml,
-			__header_title: header?.title ?? config?.defaults?.title ?? 'Website',
-			__header_content: header?.content ?? '',
-			__inputUri: page.inputUri,
+			Page: page,
+			Title: title,
+			Body: pageOutput,
+			__header_content: head?.content ?? '',
 		})
 
-		return templatedHtml
+		return processHtml(layoutOutput)
 	} else if (page.inputUri.endsWith('.cards.json')) {
 		let json = await fs.readFile(
 			path.join(config?.defaults.contentDir, page.inputUri),
-									 'utf-8'
+			'utf-8',
 		)
+		let title = `${JSON.parse(json).author}'s flashcards`
 
-		const flashcardsHtml = await fs.readFile(path.join(import.meta.dirname, '../resources/apps/flashcards/flashcards.html'), 'utf-8')
-		const template = HandlebarsInstance.compile(flashcardsHtml, {
-			noEscape: true,
-		})
-		let templatedHtml = template({
-			...page.parameters,
-			__inputUri: page.inputUri,
-			__flashcard_data: json
+		const input = await fs.readFile(
+			path.join(import.meta.dirname, '../resources/apps/flashcards/flashcards.html'),
+			'utf-8',
+		)
+		const output = HandlebarsInstance.compile(input, {
+			...defaultHandlebarsCompileOptions,
+		})({
+			Page: page,
+			Title: title,
+			__flashcard_data: json,
 		})
 
-		return templatedHtml
+		return processHtml(output)
 	} else {
 		return null
 	}
+
+	function processHtml(/** @type {string} */ html) {
+		const $ = cheerio.load(html)
+		const $a = $('a')
+		$a.each((_, el) => {
+			if (/^(?:[a-z+]+:)?\/\//u.test(el.attribs.href)) {
+				$(el).attr('target', '_blank')
+			} else {
+				$(el).attr('target', '_self')
+			}
+		})
+		return $.html()
+	}
 }
 
-async function fsCopyStaticFiles(/** @type {Config} */ config, /** @type {Options} */ options) {
+async function fsCopyStaticFiles(
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+) {
 	try {
 		await fs.cp(config?.defaults.staticDir, config?.defaults.outputDir, {
 			recursive: true,
@@ -582,7 +657,10 @@ async function fsCopyStaticFiles(/** @type {Config} */ config, /** @type {Option
 	}
 }
 
-async function fsClearBuildDirectory(/** @type {Config} */ config, /** @type {Options} */ options) {
+async function fsClearBuildDirectory(
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+) {
 	consola.info('Clearing build directory...')
 	try {
 		await fs.rm(config?.defaults.outputDir, { recursive: true })
@@ -591,7 +669,10 @@ async function fsClearBuildDirectory(/** @type {Config} */ config, /** @type {Op
 	}
 }
 
-async function fsPopulateContentMap(/** @type {Config} */ config, /** @type {Options} */ options) {
+async function fsPopulateContentMap(
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+) {
 	await walk(config?.defaults.contentDir)
 
 	async function walk(/** @type {string} */ dir) {
@@ -602,7 +683,9 @@ async function fsPopulateContentMap(/** @type {Config} */ config, /** @type {Opt
 			} else if (entry.isFile()) {
 				const inputFile = path.join(entry.parentPath, entry.name)
 				for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-					console.info(`${chalk.gray(`Adding ${ansiEscapes.link(page.outputUri, inputFile)}`)}`)
+					console.info(
+						`${chalk.gray(`Adding ${ansiEscapes.link(page.outputUri, inputFile)}`)}`,
+					)
 					ContentMap.set(page.outputUri, page.inputUri)
 				}
 			}
@@ -612,7 +695,10 @@ async function fsPopulateContentMap(/** @type {Config} */ config, /** @type {Opt
 
 const OriginalHandlebarsHelpers = Object.keys(handlebarsImport.helpers)
 
-async function fsRegisterHandlebarsHelpers(/** @type {Config} */ config, /** @type {Options} */ options) {
+async function fsRegisterHandlebarsHelpers(
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+) {
 	const handlebars = handlebarsImport.create()
 
 	// Re-register partials.
@@ -621,17 +707,22 @@ async function fsRegisterHandlebarsHelpers(/** @type {Config} */ config, /** @ty
 	}
 
 	for (const dirent of [
-		...(await fs.readdir(path.join(import.meta.dirname, '../resources/partials'), { withFileTypes: true })),
-		...(await fs.readdir(config?.defaults.partialDir, { withFileTypes: true }).catch((err) => {
-			if (err.code === 'ENOENT') {
-				return []
-			} else {
-				throw err
-			}
+		...(await fs.readdir(path.join(import.meta.dirname, '../resources/partials'), {
+			withFileTypes: true,
 		})),
+		...(await fs
+			.readdir(config?.defaults.partialDir, { withFileTypes: true })
+			.catch((err) => {
+				if (err.code === 'ENOENT') {
+					return []
+				} else {
+					throw err
+				}
+			})),
 	]) {
 		const partialContent = await fs.readFile(
-			path.join(dirent.parentPath, dirent.name), 'utf-8'
+			path.join(dirent.parentPath, dirent.name),
+			'utf-8',
 		)
 
 		handlebars.registerPartial(path.parse(dirent.name).name, partialContent)
@@ -650,7 +741,10 @@ async function fsRegisterHandlebarsHelpers(/** @type {Config} */ config, /** @ty
 	HandlebarsInstance = handlebars
 }
 
-async function addAllContentFilesToFileQueue(/** @type {Config} */ config, /** @type {Options} */ options) {
+async function addAllContentFilesToFileQueue(
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+) {
 	await walk(config?.defaults.contentDir)
 	async function walk(/** @type {string} */ dir) {
 		for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
@@ -667,10 +761,11 @@ async function addAllContentFilesToFileQueue(/** @type {Config} */ config, /** @
 }
 
 async function convertInputUriToOutputUri(
-	/** @type {Config} */ config, /** @type {Options} */ options,
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
 	/** @type {string} */ inputUri,
 	/** @type {TenFile} */ tenFile,
-	/** @type {TenRoute} */ tenRoute
+	/** @type {TenRoute} */ tenRoute,
 ) {
 	if (config?.transformUri) {
 		inputUri = config.transformUri(inputUri)
@@ -707,8 +802,9 @@ async function convertInputUriToOutputUri(
 }
 
 async function utilExtractLayout(
-	/** @type {Config} */ config, /** @type {Options} */ options,
-	/** @type {(Buffer | string | undefined)[]} */ layouts
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+	/** @type {(Buffer | string | undefined)[]} */ layouts,
 ) {
 	for (const layout of layouts) {
 		if (layout === undefined || layout === null) {
@@ -735,24 +831,20 @@ async function utilExtractLayout(
 
 /** @returns {Promise<[TenFile, TenRoute]>} */
 async function utilImportJs(
-	/** @type {Config} */ config, /** @type {Options} */ options,
-	/** @type {string} */ inputFile
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+	/** @type {string} */ inputFile,
 ) {
 	return await Promise.all([
-		await import(path.join(
-			path.dirname(inputFile),
-			path.parse(inputFile).base + '.ten.js'
-		)).catch((err) => {
-				if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
-			}),
-		await import(path.join(
-			path.dirname(inputFile),
-			'route.ten.js'
-		)).catch((err) => {
-				if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
-			})
+		await import(
+			path.join(path.dirname(inputFile), path.parse(inputFile).base + '.ten.js')
+		).catch((err) => {
+			if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
+		}),
+		await import(path.join(path.dirname(inputFile), 'route.ten.js')).catch((err) => {
+			if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
+		}),
 	])
-
 }
 
 async function utilFileExists(/** @type {string} */ file) {
