@@ -29,6 +29,8 @@ import * as v from 'valibot'
 import chalk from 'chalk'
 import * as cheerio from 'cheerio'
 import { markdownMermaid } from './markdownIt.js'
+import { Glob, globIterateSync, globStream } from 'glob'
+import { PathScurry } from 'path-scurry'
 
 /**
  * @typedef {import('handlebars')} Handlebars
@@ -132,8 +134,6 @@ export const MarkdownItInstance = (() => {
 })()
 let /** @type {Handlebars} */ HandlebarsInstance = /** @type {any} */ (null)
 globalThis.MarkdownItInstance = MarkdownItInstance // TODO
-const /** @type {string[]} */ FileQueue = []
-const /** @type {Map<string, string>} */ ContentMap = new Map()
 
 if (
 	(function isTopLevel() {
@@ -149,7 +149,7 @@ if (
 
 export async function main() {
 	logger.debug('Starting main() function...')
-	const helpText = `ten [--dir|-D=...] <build | serve | new> [options]
+	const helpText = `ten [--dir|-D=...] <build | serve | new> [options] [glob]
   Options:
     -h, --help
     --clean
@@ -169,6 +169,7 @@ export async function main() {
 			command: /** @type {Options['command']} */ (positionals[0]),
 			clean: /** @type {boolean} */ (values.clean), // TODO: Boolean not inferred
 			verbose: /** @type {boolean} */ (values.verbose),
+			positionals: positionals.slice(1) ?? [],
 		}
 
 	if (!options.command) {
@@ -236,8 +237,10 @@ async function commandServe(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 ) {
+	const /** @type {Map<string, string>} */ contentMap = new Map()
+
 	await fsRegisterHandlebarsHelpers(config, options)
-	await fsPopulateContentMap(config, options)
+	await fsPopulateContentMap(contentMap, config, options)
 
 	const app = createApp()
 	const router = createRouter()
@@ -251,7 +254,7 @@ async function commandServe(
 					? `${event.path}index.html`
 					: event.path
 
-				const inputUri = ContentMap.get(outputUri)
+				const inputUri = contentMap.get(outputUri)
 
 				setResponseHeaders(event, {
 					'Content-Type': mime.lookup(outputUri) || 'text/html',
@@ -341,12 +344,14 @@ export async function commandBuild(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 ) {
+	const /** @type {string[]} */ fileQueue = []
+
 	if (options.clean) {
 		await fsClearBuildDirectory(config, options)
 	}
 	await fsRegisterHandlebarsHelpers(config, options)
-	await addAllContentFilesToFileQueue(config, options)
-	await iterateFileQueueByWhileLoop(config, options)
+	await addAllContentFilesToFileQueue(fileQueue, config, options)
+	await iterateFileQueueByWhileLoop(fileQueue, config, options)
 	await fsCopyStaticFiles(config, options)
 	logger.success('Done.')
 }
@@ -402,6 +407,7 @@ draft = true
 }
 
 async function iterateFileQueueByCallback(
+	/** @type {string[]} */ fileQueue,
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 	{ onEmptyFileQueue = /** @type {() => void | Promise<void>} */ () => {} } = {},
@@ -410,8 +416,8 @@ async function iterateFileQueueByCallback(
 	await cb()
 
 	async function cb() {
-		if (FileQueue.length > 0) {
-			const inputFile = path.join(config?.defaults.contentDir, FileQueue[0])
+		if (fileQueue.length > 0) {
+			const inputFile = path.join(config?.defaults.contentDir, fileQueue[0])
 			for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
 				const outputUrl = path.join(config?.defaults.outputDir, page.outputUri)
 
@@ -425,7 +431,7 @@ async function iterateFileQueueByCallback(
 				}
 			}
 
-			FileQueue.splice(0, 1)
+			fileQueue.splice(0, 1)
 			lastCallbackWasEmpty = false
 		} else {
 			if (!lastCallbackWasEmpty) {
@@ -439,11 +445,12 @@ async function iterateFileQueueByCallback(
 }
 
 async function iterateFileQueueByWhileLoop(
+	/** @type {string[]} */ fileQueue,
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 ) {
-	while (FileQueue.length > 0) {
-		const inputFile = path.join(config?.defaults.contentDir, FileQueue[0])
+	while (fileQueue.length > 0) {
+		const inputFile = path.join(config?.defaults.contentDir, fileQueue[0])
 		for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
 			const outputFile = path.join(config?.defaults.outputDir, page.outputUri)
 
@@ -457,7 +464,7 @@ async function iterateFileQueueByWhileLoop(
 			}
 		}
 
-		FileQueue.splice(0, 1)
+		fileQueue.splice(0, 1)
 	}
 }
 
@@ -724,25 +731,22 @@ async function fsClearBuildDirectory(
 }
 
 async function fsPopulateContentMap(
+	/** @type {Map<string, string>} */ contentMap,
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 ) {
-	await walk(config?.defaults.contentDir)
+	const pw = new PathScurry(config?.defaults.contentDir)
+	for await (const entry of pw) {
+		if (!entry.isFile()) {
+			continue
+		}
 
-	async function walk(/** @type {string} */ dir) {
-		for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-			if (entry.isDirectory()) {
-				const subdir = path.join(entry.parentPath, entry.name)
-				await walk(subdir)
-			} else if (entry.isFile()) {
-				const inputFile = path.join(entry.parentPath, entry.name)
-				for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-					console.info(
-						`${chalk.gray(`Adding ${ansiEscapes.link(page.outputUri, inputFile)}`)}`,
-					)
-					ContentMap.set(page.outputUri, page.inputUri)
-				}
-			}
+		const inputFile = path.join(entry.parentPath, entry.name)
+		for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
+			console.info(
+				`${chalk.gray(`Adding ${ansiEscapes.link(page.outputUri, inputFile)}`)}`,
+			)
+			contentMap.set(page.outputUri, page.inputUri)
 		}
 	}
 }
@@ -796,20 +800,29 @@ async function fsRegisterHandlebarsHelpers(
 }
 
 async function addAllContentFilesToFileQueue(
+	/** @type {string[]} */ fileQueue,
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 ) {
-	await walk(config?.defaults.contentDir)
-	async function walk(/** @type {string} */ dir) {
-		for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-			if (entry.isDirectory()) {
-				const subdir = path.join(dir, entry.name)
-				await walk(subdir)
-			} else if (entry.isFile()) {
-				const inputFile = path.join(entry.parentPath, entry.name)
-				const inputUri = path.relative(config?.defaults.contentDir, inputFile)
-				FileQueue.push(inputUri)
+	if (!options.positionals[0]) {
+		const pw = new PathScurry(config?.defaults.contentDir)
+		for await (const entry of pw) {
+			if (!entry.isFile()) {
+				continue
 			}
+
+			const inputFile = path.join(entry.parentPath, entry.name)
+			const inputUri = path.relative(config?.defaults.contentDir, inputFile)
+			fileQueue.push(inputUri)
+		}
+	} else {
+		for await (const inputUri of globIterateSync(options.positionals[0], {
+			cwd: config?.defaults.contentDir,
+			absolute: false,
+			dot: true,
+			nodir: true,
+		})) {
+			fileQueue.push(inputUri)
 		}
 	}
 }

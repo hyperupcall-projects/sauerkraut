@@ -47,6 +47,7 @@ export type Options = {
 	command: 'serve' | 'watch' | 'build' | 'new'
 	clean: boolean
 	verbose: boolean
+	positionals: string[]
 }
 
 export type Page = {

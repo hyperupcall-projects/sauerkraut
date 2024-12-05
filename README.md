@@ -10,12 +10,10 @@ Ten will be / is a static site generator / content management system / web frame
 
 ## Plans <!-- omit from toc -->
 
-- refactor global variables (FileQueue, etc.)
 - re-add watch mode (to _build_ and _serve_)
 - instead of rewriting something like `mathematics/mathematics.html` to `mathematics/index.html`, create a redirect at `index.html` instead. Or, just fix the thing so it only rewrites content files (.md not .cards.json). Related: autogenerate index.html
 - Something similar to flashcards, but only for words. Word association.
 - Blog RSS feed and fix tags/categories in dev server
-- Be able to build only certain files/directory matching a glob
 - later: Linter to always ensure trailing slash for local URLs
 
 ## Introduction <!-- omit from toc -->
