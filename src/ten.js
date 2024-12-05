@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // @ts-check
 import fs from 'node:fs/promises'
+import fsSync from 'node:fs'
 import path from 'node:path'
 import util from 'node:util'
 import url from 'node:url'
@@ -8,7 +9,7 @@ import readline from 'node:readline'
 
 import TOML from 'smol-toml'
 import handlebarsImport from 'handlebars'
-import { consola } from 'consola'
+import { createConsola } from 'consola'
 import markdownit from 'markdown-it'
 import { full as markdownEmoji } from 'markdown-it-emoji'
 import Shiki from '@shikijs/markdown-it'
@@ -27,13 +28,20 @@ import ansiEscapes from 'ansi-escapes'
 import * as v from 'valibot'
 import chalk from 'chalk'
 import * as cheerio from 'cheerio'
-
-export { consola }
+import { markdownMermaid } from './markdownIt.js'
 
 /**
  * @typedef {import('handlebars')} Handlebars
+ * @typedef {v.InferOutput<ReturnType<typeof getConfigSchema>>} Config
+ * @import { PackageJson } from 'type-fest'
  * @import { TenFile, TenRoute, Options, Page, Frontmatter } from './types.d.ts'
  */
+
+export const logger = createConsola({
+	level: process.env.DEBUG === undefined ? 3 : 4,
+})
+
+logger.debug('Finished evaluating imports...')
 
 function getConfigSchema(/** @type {string} */ rootDir) {
 	return v.object({
@@ -90,11 +98,22 @@ function getConfigSchema(/** @type {string} */ rootDir) {
 	})
 }
 
-/**
- * @typedef {v.InferOutput<ReturnType<typeof getConfigSchema>>} Config
- */
-
 const ShikiInstance = await Shiki({
+	langs: [
+		'javascript',
+		'typescript',
+		'cpp',
+		'markdown',
+		'html',
+		'css',
+		'json',
+		'yaml',
+		'sh',
+		'properties',
+		'makefile',
+		'tcl',
+		'python',
+	],
 	themes: {
 		light: 'github-light',
 		dark: 'github-dark',
@@ -108,6 +127,7 @@ export const MarkdownItInstance = (() => {
 	})
 	md.use(ShikiInstance)
 	md.use(markdownEmoji)
+	md.use(markdownMermaid)
 	return md
 })()
 let /** @type {Handlebars} */ HandlebarsInstance = /** @type {any} */ (null)
@@ -128,6 +148,7 @@ if (
 }
 
 export async function main() {
+	logger.debug('Starting main() function...')
 	const helpText = `ten [--dir|-D=...] <build | serve | new> [options]
   Options:
     -h, --help
@@ -152,12 +173,12 @@ export async function main() {
 
 	if (!options.command) {
 		console.error(helpText)
-		consola.error('No command provided.')
+		logger.error('No command provided.')
 		process.exit(1)
 	}
 
 	if (values.help) {
-		consola.info(helpText)
+		logger.info(helpText)
 		process.exit(0)
 	}
 
@@ -169,9 +190,9 @@ export async function main() {
 	) {
 		console.error(helpText)
 		if (!positionals[0]) {
-			consola.error(`No command passed`)
+			logger.error(`No command passed`)
 		} else {
-			consola.error(`Unknown command: ${positionals[0]}`)
+			logger.error(`Unknown command: ${positionals[0]}`)
 		}
 		process.exit(1)
 	}
@@ -182,7 +203,7 @@ export async function main() {
 		'ten.config.js',
 	)
 	if (!(await utilFileExists('./ten.config.js'))) {
-		consola.error(
+		logger.error(
 			`File "ten.config.js" not found for project: "${path.dirname(configFile)}"`,
 		)
 		process.exit(1)
@@ -193,7 +214,7 @@ export async function main() {
 	const configSchema = getConfigSchema(rootDir)
 	const result = v.safeParse(configSchema, config)
 	if (!result.success) {
-		consola.error(`Failed to parse config file: "${configFile}"`)
+		logger.error(`Failed to parse config file: "${configFile}"`)
 
 		const flatErrors = v.flatten(result.issues)
 		console.log(flatErrors)
@@ -302,7 +323,7 @@ async function commandServe(
 		port: process.env.PORT ?? 3001,
 		showURL: false,
 	})
-	consola.start(`Listening at http://localhost:${listener.address.port}`)
+	logger.start(`Listening at http://localhost:${listener.address.port}`)
 
 	process.on('SIGINT', async () => {
 		await listener.close()
@@ -327,7 +348,7 @@ export async function commandBuild(
 	await addAllContentFilesToFileQueue(config, options)
 	await iterateFileQueueByWhileLoop(config, options)
 	await fsCopyStaticFiles(config, options)
-	consola.success('Done.')
+	logger.success('Done.')
 }
 
 async function commandNew(/** @type {Config} */ config, /** @type {Options} */ options) {
@@ -336,7 +357,7 @@ async function commandNew(/** @type {Config} */ config, /** @type {Options} */ o
 		output: process.stdout,
 	})
 	rl.on('SIGINT', () => {
-		consola.error('Aborting...')
+		logger.error('Aborting...')
 		rl.close()
 		process.exit(1)
 	})
@@ -377,7 +398,7 @@ draft = true
 `,
 	)
 	rl.close()
-	consola.info(`File created at ${markdownFile}`)
+	logger.info(`File created at ${markdownFile}`)
 }
 
 async function iterateFileQueueByCallback(
@@ -574,7 +595,7 @@ async function handleContentFile(
 			})(),
 		})
 
-		return processHtml(layoutOutput)
+		return await processHtml(layoutOutput)
 	} else if (page.inputUri.endsWith('.html') || page.inputUri.endsWith('.xml')) {
 		const meta = await page.tenFile?.Meta?.({ config, options })
 		const head = await page.tenFile?.Head?.({ config, options })
@@ -605,7 +626,7 @@ async function handleContentFile(
 			__header_content: head?.content ?? '',
 		})
 
-		return processHtml(layoutOutput)
+		return await processHtml(layoutOutput)
 	} else if (page.inputUri.endsWith('.cards.json')) {
 		let json = await fs.readFile(
 			path.join(config?.defaults.contentDir, page.inputUri),
@@ -625,21 +646,54 @@ async function handleContentFile(
 			__flashcard_data: json,
 		})
 
-		return processHtml(output)
+		return await processHtml(output)
 	} else {
 		return null
 	}
 
-	function processHtml(/** @type {string} */ html) {
+	async function processHtml(/** @type {string} */ html) {
 		const $ = cheerio.load(html)
-		const $a = $('a')
-		$a.each((_, el) => {
-			if (/^(?:[a-z+]+:)?\/\//u.test(el.attribs.href)) {
-				$(el).attr('target', '_blank')
-			} else {
-				$(el).attr('target', '_self')
-			}
-		})
+		// Set default "target" attribute for all "a" links.
+		{
+			$('a').each((_, el) => {
+				if (/^(?:[a-z+]+:)?\/\//u.test(el.attribs.href)) {
+					$(el).attr('target', '_blank')
+				} else {
+					$(el).attr('target', '_self')
+				}
+			})
+		}
+
+		{
+			// TODO
+			// const possibleLocations = await Promise.all([
+			// 	path.join(options.dir, href)
+			// ])
+			// const $links = $('*[href]')
+			// $links.each((_, el_) => {
+			// 	const el = $(el_) // TODO
+			// 	const href = el.attr('href') ?? ''
+			// 	if (href.includes('node_modules')) {
+			// 		if (!href.startsWith('/node_modules')) {
+			// 			throw new Error(`Any node_modules link must start with "/node_modules"`)
+			// 		}
+			// 		const parts = href.split('/')
+			// 		const packageName = parts[parts.indexOf('node_modules') + 1]
+			// 		const packageJsonPath = path.join(
+			// 			process.cwd(),
+			// 			parts.splice(0, parts.indexOf(packageName) + 1).join('/'),
+			// 			'package.json',
+			// 		)
+			// 		const text = fsSync.readFileSync(packageJsonPath, 'utf-8')
+			// 		const /** @type {PackageJson} */ packageJson = JSON.parse(text)
+			// 		const version = packageJson.dependencies?.[packageName]
+			// 		const newHref = href.replace('node_modules', `${packageName}@${version}`)
+			// 		el.attr('href', newHref)
+			// 		console.log(newHref)
+			// 	}
+			// })
+		}
+
 		return $.html()
 	}
 }
@@ -661,7 +715,7 @@ async function fsClearBuildDirectory(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 ) {
-	consola.info('Clearing build directory...')
+	logger.info('Clearing build directory...')
 	try {
 		await fs.rm(config?.defaults.outputDir, { recursive: true })
 	} catch (err) {

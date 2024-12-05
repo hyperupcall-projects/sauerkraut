@@ -7,7 +7,7 @@ import handlebarsImport from 'handlebars'
 import { execa } from 'execa'
 import dedent from 'dedent'
 
-import { commandBuild, consola } from './ten.js'
+import { commandBuild, logger } from './ten.js'
 
 const Filename = new URL(import.meta.url).pathname
 const Dirname = path.dirname(Filename)
@@ -64,7 +64,7 @@ const Ctx = Object.freeze({
 })
 
 before(async () => {
-	consola.mockTypes(() => mock.fn())
+	logger.mockTypes(() => mock.fn())
 	await fs.rm(TestDataDir, { recursive: true, force: true })
 })
 
