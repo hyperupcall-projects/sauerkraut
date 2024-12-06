@@ -2,9 +2,20 @@
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<meta name="referrer" content="same-origin" />
-
+	<!-- TODO -->
+	<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300..700&family=Rubik:ital,wght@0,300..900;1,300..900&display=swap" rel="stylesheet">
+	<style>
+		*, *::before, *::after {
+			box-sizing: border-box;
+		  font-family: "Rubik"
+  		}
+	</style>
 	{{#if Title}}
 	<title>{{ Title }}</title>
+	{{/if}}
+	{{#if (eq Env 'development')}}
+	<link rel="stylesheet" href="/__/css/overlay.css" />
+	<script defer src="/__/js/overlay.js"></script>
 	{{/if}}
 	{{#if __header_content}}
 	{{ __header_content }}

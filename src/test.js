@@ -1,5 +1,6 @@
 import { test, suite, mock, before, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
+import module from 'node:module'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
@@ -8,6 +9,8 @@ import { execa } from 'execa'
 import dedent from 'dedent'
 
 import { commandBuild, logger } from './ten.js'
+
+module.register(url.pathToFileURL(path.join(import.meta.dirname, './hot.js')))
 
 const Filename = new URL(import.meta.url).pathname
 const Dirname = path.dirname(Filename)

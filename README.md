@@ -1,6 +1,6 @@
 # Ten <!-- omit from toc -->
 
-Ten will be / is a static site generator / content management system / web framework solution. I created it because:
+Ten will be a static site generator / content management system / web framework solution. I created it because:
 
 - I want my website code to last for decades
   - Frameworks like Hugo, Zola, etc. will eventually go the way of Jekyll
@@ -11,10 +11,11 @@ Ten will be / is a static site generator / content management system / web frame
 ## Plans <!-- omit from toc -->
 
 - re-add watch mode (to _build_ and _serve_)
+- Add overlay to all pages to see info of some sort, what layout, dep tree, etc.
 - instead of rewriting something like `mathematics/mathematics.html` to `mathematics/index.html`, create a redirect at `index.html` instead. Or, just fix the thing so it only rewrites content files (.md not .cards.json). Related: autogenerate index.html
-- Something similar to flashcards, but only for words. Word association.
 - Blog RSS feed and fix tags/categories in dev server
 - later: Linter to always ensure trailing slash for local URLs
+- later: for each page autogenerate: references, backreferences, other meatdata, tags, etc.
 
 ## Introduction <!-- omit from toc -->
 
@@ -64,21 +65,25 @@ The following formats are supported:
 
 #### HTML, XML
 
-These are processed with the templating engine [Handlebars](https://handlebarsjs.com).
+These files are processed with the templating engine [Handlebars](https://handlebarsjs.com).
 
-Templates have access to the following variables:
+Templates can use the following variables:
 
 - `Page` (layouts & partials, pages)
 - `Title` (layouts & partials, pages)
+- `Env` (layouts & partials, pages)
 - `Body` (layouts & partials)
 
 #### Markdown
+
+These files are process with the markdown parser [markdown-it](https://github.com/markdown-it/markdown-it).
 
 Markdown files support the following features:
 
 - Syntax highlighting (via [Shiki](https://shiki.style))
 - Emoji conversion
-- KaTeX
+- LaTeX with [KaTeX](https://katex.org)
+- [Mermaid](https://mermaid.js.org) diagrams
 
 ### Special File Names
 
@@ -98,7 +103,7 @@ These are ignored.
 
 ## Website JavaScript Customization
 
-This file potentially customizes the behavior of the whole website. To be recognized, its name must be `/ten.config.js`.
+This file potentially customizes the behavior of the whole website. To be recognized, its name must match `/ten.config.js`.
 
 It can export:
 
@@ -111,7 +116,7 @@ It can export:
 
 ## Page JavaScript Customization
 
-This file potentially customizes the behavior of a single page. To be recognized, its name must match `/**/<adjacentFileName>.ten.js`.
+This file potentially customizes the behavior of a single page. To be recognized, its name must match `/**/<adjacentPage>.ten.js`.
 
 It can export:
 
@@ -130,7 +135,7 @@ Where output files are written to.
 
 ### `content/`
 
-User-generated content. There are several variants:
+User-generated content.
 
 ### `layouts/`
 
@@ -138,7 +143,7 @@ Handlebars templates that are applied to all pages and posts. Individual pages a
 
 ### `partials/`
 
-Handlebars partials that can be used in any HTML file.
+Handlebars partials that can be used in any template or HTML file.
 
 ### `static/`
 
@@ -147,3 +152,5 @@ These assets are copied directly to the build directory without processing.
 ### Older Ideas
 
 **Entrypoints**. Entrypoints were created to make it easier to approximate tracking dependencies of a page. For example, if `/math/theme.cls` changed, then probably `/math/slides.tex` should be regenerated as well. This breaks down too often, as it's not uncommon for files under a particular directory to be unrelated. An alternative to entrypoints was tracking dependencies of a page by parsing the page with either regular expressions or a laguage parser library. This wasn't chosen since it would mean adding regular expressions or traverse functions for each markup language. And, detection would not be posssible with more dynamic markup languages.
+
+**Templating Library**: A templating library was initially helpful when starting the project. However, there were some limitations. It's hard to debug since there are no "stack traces". Composing partials is either not possible or is not well-supported. Also, there is no typechecking, and both intellisense and syntax highlighting is deficient. I also don't like the nature of the "partials" and "layouts" directory. I don't like their names and that they are very small files. All of is why I will just use JavaScript, which can do all of these things.

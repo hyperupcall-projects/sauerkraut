@@ -10,8 +10,7 @@ export const resolve = async (specifier, context, defaultResolve) => {
 	if (
 		child.protocol === 'nodejs:' ||
 		child.protocol === 'node:' ||
-		child.pathname.includes('/node_modules/') ||
-		path.parse(child.pathname).base.match(/^ten(?:\.\w+)?\.js$/)
+		child.pathname.includes('/node_modules/')
 	) {
 		return result
 	}

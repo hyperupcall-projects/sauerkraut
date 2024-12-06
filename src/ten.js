@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // @ts-check
 import fs from 'node:fs/promises'
-import fsSync from 'node:fs'
+import fsCb from 'node:fs'
 import path from 'node:path'
 import util from 'node:util'
 import url from 'node:url'
+import module from 'node:module'
 import readline from 'node:readline'
 
 import TOML from 'smol-toml'
@@ -19,25 +20,30 @@ import {
 	createRouter,
 	defineEventHandler,
 	serveStatic,
-	sendStream,
 	setResponseHeaders,
 	toNodeListener,
 } from 'h3'
+import watcher from '@parcel/watcher'
 import mime from 'mime-types'
 import ansiEscapes from 'ansi-escapes'
 import * as v from 'valibot'
 import chalk from 'chalk'
 import * as cheerio from 'cheerio'
-import { markdownMermaid } from './markdownIt.js'
-import { Glob, globIterateSync, globStream } from 'glob'
+import { globIterate } from 'glob'
 import { PathScurry } from 'path-scurry'
+import { markdownMermaid } from './markdownIt.js'
+import debounce from 'debounce'
+import { layouts } from './config.js'
 
 /**
  * @typedef {import('handlebars')} Handlebars
- * @typedef {v.InferOutput<ReturnType<typeof getConfigSchema>>} Config
+ * @import { H3Event, EventHandlerRequest } from 'h3'
  * @import { PackageJson } from 'type-fest'
- * @import { TenFile, TenRoute, Options, Page, Frontmatter } from './types.d.ts'
+ * @import { TenFile, Options, Page, Frontmatter } from './types.d.ts'
+ * @typedef {v.InferOutput<ReturnType<typeof getConfigSchema>>} Config
  */
+
+module.register(url.pathToFileURL(path.join(import.meta.dirname, './hot.js')))
 
 export const logger = createConsola({
 	level: process.env.DEBUG === undefined ? 3 : 4,
@@ -48,8 +54,8 @@ logger.debug('Finished evaluating imports...')
 function getConfigSchema(/** @type {string} */ rootDir) {
 	return v.object({
 		defaults: v.strictObject({
-			title: v.optional(v.string(), rootDir),
-			rootDir: v.optional(v.string()),
+			title: v.string(),
+			rootDir: v.optional(v.string(), rootDir),
 			contentDir: v.optional(v.string(), path.join(rootDir, 'content')),
 			layoutDir: v.optional(v.string(), path.join(rootDir, 'layouts')),
 			partialDir: v.optional(v.string(), path.join(rootDir, 'partials')),
@@ -149,8 +155,13 @@ if (
 
 export async function main() {
 	logger.debug('Starting main() function...')
-	const helpText = `ten [--dir|-D=...] <build | serve | new> [options] [glob]
-  Options:
+	const helpText = `ten [--dir|-D=...] <subcommand> [options]
+	Subcommands:
+		build [--clean] [--watch] [glob]
+		serve [glob]
+		new
+
+	Options:
     -h, --help
     --clean
     --verbose`
@@ -161,6 +172,7 @@ export async function main() {
 			dir: { type: 'string', default: '.', alias: 'D' },
 			clean: { type: 'boolean', default: false },
 			verbose: { type: 'boolean', default: false },
+			watch: { type: 'boolean', default: false },
 			help: { type: 'boolean', default: false, alias: 'h' },
 		},
 	})
@@ -168,8 +180,10 @@ export async function main() {
 			dir: /** @type {string} */ (values.dir),
 			command: /** @type {Options['command']} */ (positionals[0]),
 			clean: /** @type {boolean} */ (values.clean), // TODO: Boolean not inferred
+			watch: /** @type {boolean} */ (values.watch), // TODO: Boolean not inferred
 			verbose: /** @type {boolean} */ (values.verbose),
 			positionals: positionals.slice(1) ?? [],
+			env: '',
 		}
 
 	if (!options.command) {
@@ -185,7 +199,6 @@ export async function main() {
 
 	if (
 		options.command !== 'serve' &&
-		options.command !== 'watch' &&
 		options.command !== 'build' &&
 		options.command !== 'new'
 	) {
@@ -198,38 +211,40 @@ export async function main() {
 		process.exit(1)
 	}
 
-	const configFile = path.join(
-		process.cwd(),
-		/** @type {string} */ (values.dir),
-		'ten.config.js',
-	)
-	if (!(await utilFileExists('./ten.config.js'))) {
-		logger.error(
-			`File "ten.config.js" not found for project: "${path.dirname(configFile)}"`,
-		)
-		process.exit(1)
-	}
-
-	const rootDir = path.dirname(configFile)
-	const /** @type {Config} */ config = await import(configFile)
-	const configSchema = getConfigSchema(rootDir)
-	const result = v.safeParse(configSchema, config)
-	if (!result.success) {
-		logger.error(`Failed to parse config file: "${configFile}"`)
-
-		const flatErrors = v.flatten(result.issues)
-		console.log(flatErrors)
-		process.exit(1)
-	}
-
+	const configFile = path.join(process.cwd(), options.dir, 'ten.config.js')
+	let config = await loadConfig(configFile)
 	if (options.command === 'serve') {
-		await commandServe(result.output, options)
-	} else if (options.command === 'watch') {
-		await commandWatch(result.output, options)
+		options.env = 'development'
+		await commandServe(config, options)
 	} else if (options.command === 'build') {
-		await commandBuild(result.output, options)
+		if (options.watch) {
+			options.env = 'development'
+		}
+		await commandBuild(config, options)
 	} else if (options.command === 'new') {
-		await commandNew(result.output, options)
+		await commandNew(config, options)
+	}
+
+	/** @returns {Promise<Config>} */
+	async function loadConfig(/** @type {string} */ configFile) {
+		if (!(await utilFileExists(configFile))) {
+			logger.error(
+				`File "ten.config.js" not found for project: "${path.dirname(configFile)}"`,
+			)
+			process.exit(1)
+		}
+
+		const /** @type {Config} */ config = await import(configFile)
+		const rootDir = path.dirname(configFile)
+		const configSchema = getConfigSchema(rootDir)
+		const result = v.safeParse(configSchema, config)
+		if (result.success) {
+			return result.output
+		} else {
+			logger.error(`Failed to parse config file: "${configFile}"`)
+			console.error(v.flatten(result.issues))
+			process.exit(1)
+		}
 	}
 }
 
@@ -246,7 +261,7 @@ async function commandServe(
 	const router = createRouter()
 	app.use(router)
 
-	router.use(
+	router.get(
 		'/**',
 		defineEventHandler(async (event) => {
 			try {
@@ -264,8 +279,8 @@ async function commandServe(
 				})
 
 				if (inputUri) {
-					const inputFile = path.join(config?.defaults.contentDir, inputUri)
-					console.log(
+					const inputFile = path.join(config.defaults.contentDir, inputUri)
+					console.info(
 						`${chalk.magenta('Content Request')}: ${event.path}\t\t\t${chalk.gray(`(from ${event.path})`)}`,
 					)
 
@@ -274,47 +289,16 @@ async function commandServe(
 						if (typeof result === 'string') {
 							return result
 						} else {
-							return serveStatic(event, {
-								getContents(uri) {
-									return fs.readFile(page.inputFile)
-								},
-								async getMeta(uri) {
-									const stats = await fs.stat(page.inputFile).catch(() => null)
-
-									if (!stats?.isFile()) {
-										return
-									}
-
-									return {
-										size: stats.size,
-										mtime: stats.mtimeMs,
-									}
-								},
-							})
+							return utilServeStatic(event, path.dirname(page.inputFile))
 						}
 					}
 				} else {
-					console.log(`${chalk.cyan('Static Request')}:  ${event.path}`)
+					console.info(`${chalk.cyan('Static Request')}:  ${event.path}`)
+					const staticDir = event.path.startsWith('/__/')
+						? path.join(import.meta.dirname, '../resources/static')
+						: config.defaults.staticDir
 
-					return serveStatic(event, {
-						getContents(uri) {
-							return fs.readFile(path.join(config?.defaults.staticDir, uri))
-						},
-						async getMeta(uri) {
-							const stats = await fs
-								.stat(path.join(config?.defaults.staticDir, uri))
-								.catch(() => null)
-
-							if (!stats?.isFile()) {
-								return
-							}
-
-							return {
-								size: stats.size,
-								mtime: stats.mtimeMs,
-							}
-						},
-					})
+					return utilServeStatic(event, staticDir)
 				}
 			} catch (err) {
 				console.error(err)
@@ -328,16 +312,57 @@ async function commandServe(
 	})
 	logger.start(`Listening at http://localhost:${listener.address.port}`)
 
+	utilOnConfigFileChange(options, () => {
+		listener.close().then(() => {
+			logger.info('Restarting server...')
+			main()
+		})
+	})
 	process.on('SIGINT', async () => {
 		await listener.close()
+		process.exit(0)
 	})
 }
 
+// TODO
 export async function commandWatch(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 ) {
-	console.log('watch')
+	if (options.clean) {
+		await fsClearBuildDirectory(config, options)
+	}
+	await fsRegisterHandlebarsHelpers(config, options)
+	await watcher.subscribe(
+		config.defaults.rootDir,
+		(err, events) => {
+			if (err) {
+				console.error(err)
+				return
+			}
+
+			for (const event of events) {
+				if (event.type === 'create' || event.type === 'update') {
+					const fileQueue = []
+					addAllContentFilesToFileQueue(fileQueue, config, options)
+					iterateFileQueueByCallback(fileQueue, config, options, {
+						async onEmptyFileQueue() {
+							// await fsCopyStaticFiles(config, options) // TODO
+						},
+					})
+				}
+			}
+		},
+		{
+			ignore: [config.defaults.outputDir],
+		},
+	)
+
+	process.on('SIGINT', async () => {
+		await fs.mkdir('.hidden', { recursive: true })
+		await watcher.writeSnapshot(config.defaults.rootDir, '.hidden/.ten-snapshot.txt')
+		process.exit(0)
+	})
 }
 
 export async function commandBuild(
@@ -383,7 +408,7 @@ async function commandNew(/** @type {Config} */ config, /** @type {Options} */ o
 		.replace('T', ' ')
 		.replace(/\.[0-9]+Z$/, 'Z')
 	const markdownFile = path.join(
-		config?.defaults.contentDir,
+		config.defaults.contentDir,
 		'posts/drafts',
 		`${slug}/${slug}.md`,
 	)
@@ -417,17 +442,17 @@ async function iterateFileQueueByCallback(
 
 	async function cb() {
 		if (fileQueue.length > 0) {
-			const inputFile = path.join(config?.defaults.contentDir, fileQueue[0])
+			const inputFile = path.join(config.defaults.contentDir, fileQueue[0])
 			for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-				const outputUrl = path.join(config?.defaults.outputDir, page.outputUri)
+				const outputUrl = path.join(config.defaults.outputDir, page.outputUri)
 
 				await fs.mkdir(path.dirname(outputUrl), { recursive: true })
 				const result = await handleContentFile(config, options, page)
 				if (result === undefined) {
 				} else if (result === null) {
-					await fs.copyFile(inputFile, outputFile)
+					await fs.copyFile(inputFile, outputUrl)
 				} else {
-					await fs.writeFile(outputFile, result)
+					await fs.writeFile(outputUrl, result)
 				}
 			}
 
@@ -450,9 +475,9 @@ async function iterateFileQueueByWhileLoop(
 	/** @type {Options} */ options,
 ) {
 	while (fileQueue.length > 0) {
-		const inputFile = path.join(config?.defaults.contentDir, fileQueue[0])
+		const inputFile = path.join(config.defaults.contentDir, fileQueue[0])
 		for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-			const outputFile = path.join(config?.defaults.outputDir, page.outputUri)
+			const outputFile = path.join(config.defaults.outputDir, page.outputUri)
 
 			await fs.mkdir(path.dirname(outputFile), { recursive: true })
 			const result = await handleContentFile(config, options, page)
@@ -474,22 +499,21 @@ async function* yieldPagesFromInputFile(
 	/** @type {Options} */ options,
 	/** @type {string} */ inputFile,
 ) {
-	const inputUri = path.relative(config?.defaults.contentDir, inputFile)
-	const [tenFile, tenRoute] = await utilImportJs(config, options, inputFile)
-	const outputUri = await convertInputUriToOutputUri(
-		config,
-		options,
-		inputUri,
-		tenFile,
-		tenRoute,
+	const inputUri = path.relative(config.defaults.contentDir, inputFile)
+	const tenFilepath = path.join(
+		path.dirname(inputFile),
+		path.parse(inputFile).base + '.ten.js',
 	)
+	const tenFile = await import(tenFilepath).catch((err) => {
+		if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
+	})
+	const outputUri = await convertInputUriToOutputUri(config, options, inputUri, tenFile)
 
 	/** @type {Page} */
 	const page = {
 		inputFile,
 		inputUri,
 		tenFile,
-		tenRoute,
 		parameters: {},
 		outputUri,
 	}
@@ -526,6 +550,11 @@ async function handleContentFile(
 	/** @type {Options} */ options,
 	/** @type {Page} */ page,
 ) {
+	if (page.inputUri.startsWith('/__/')) {
+		return null // TODO
+	}
+
+	// TODO
 	/** @type {NonNullable<Parameters<typeof HandlebarsInstance.compile>[1]>} */
 	const defaultHandlebarsCompileOptions = {
 		noEscape: true,
@@ -557,7 +586,7 @@ async function handleContentFile(
 		// Do not copy file.
 	} else if (page.inputUri.endsWith('.md')) {
 		let markdown = await fs.readFile(
-			path.join(config?.defaults.contentDir, page.inputUri),
+			path.join(config.defaults.contentDir, page.inputUri),
 			'utf-8',
 		)
 		const { html, frontmatter } = (() => {
@@ -572,14 +601,14 @@ async function handleContentFile(
 				frontmatter: /** @type {Frontmatter} */ (
 					config.validateFrontmatter(
 						config,
-						path.join(config?.defaults.contentDir, page.inputUri),
+						path.join(config.defaults.contentDir, page.inputUri),
 						frontmatter,
 					)
 				),
 			}
 		})()
 
-		const layoutInput = await utilExtractLayout(config, options, [
+		const layoutInput = await utilExtractLayout(config, [
 			frontmatter?.layout,
 			await config?.decideLayout?.(config, options, page),
 			'__default.hbs',
@@ -589,6 +618,7 @@ async function handleContentFile(
 		})({
 			Page: page,
 			Title: titleOverride ?? frontmatter.title,
+			Env: options.env,
 			Body: html,
 			__frontmatter: frontmatter,
 			__date: (() => {
@@ -606,10 +636,10 @@ async function handleContentFile(
 	} else if (page.inputUri.endsWith('.html') || page.inputUri.endsWith('.xml')) {
 		const meta = await page.tenFile?.Meta?.({ config, options })
 		const head = await page.tenFile?.Head?.({ config, options })
-		const title = head?.title ?? config?.defaults?.title ?? ''
+		const title = head?.title ?? config.defaults?.title ?? ''
 
 		let pageInput = await fs.readFile(
-			path.join(config?.defaults.contentDir, page.inputUri),
+			path.join(config.defaults.contentDir, page.inputUri),
 			'utf-8',
 		)
 		const pageOutput = HandlebarsInstance.compile(pageInput, {
@@ -617,9 +647,10 @@ async function handleContentFile(
 		})({
 			Page: page,
 			Title: title,
+			Env: options.env,
 		})
 
-		const layoutInput = await utilExtractLayout(config, options, [
+		const layoutInput = await utilExtractLayout(config, [
 			meta?.layout,
 			await config?.decideLayout?.(config, options, page),
 			'__default.hbs',
@@ -629,6 +660,7 @@ async function handleContentFile(
 		})({
 			Page: page,
 			Title: title,
+			Env: options.env,
 			Body: pageOutput,
 			__header_content: head?.content ?? '',
 		})
@@ -636,13 +668,13 @@ async function handleContentFile(
 		return await processHtml(layoutOutput)
 	} else if (page.inputUri.endsWith('.cards.json')) {
 		let json = await fs.readFile(
-			path.join(config?.defaults.contentDir, page.inputUri),
+			path.join(config.defaults.contentDir, page.inputUri),
 			'utf-8',
 		)
 		let title = `${JSON.parse(json).author}'s flashcards`
 
 		const input = await fs.readFile(
-			path.join(import.meta.dirname, '../resources/apps/flashcards/flashcards.html'),
+			path.join(import.meta.dirname, '../resources/apps/flashcards/flashcards.hbs'),
 			'utf-8',
 		)
 		const output = HandlebarsInstance.compile(input, {
@@ -650,6 +682,7 @@ async function handleContentFile(
 		})({
 			Page: page,
 			Title: title,
+			Env: options.env,
 			__flashcard_data: json,
 		})
 
@@ -710,9 +743,21 @@ async function fsCopyStaticFiles(
 	/** @type {Options} */ options,
 ) {
 	try {
-		await fs.cp(config?.defaults.staticDir, config?.defaults.outputDir, {
+		await fs.cp(config.defaults.staticDir, config.defaults.outputDir, {
 			recursive: true,
 		})
+	} catch (err) {
+		if (err.code !== 'ENOENT') throw err
+	}
+
+	try {
+		await fs.cp(
+			path.join(import.meta.dirname, '../resources/static'),
+			config.defaults.outputDir,
+			{
+				recursive: true,
+			},
+		)
 	} catch (err) {
 		if (err.code !== 'ENOENT') throw err
 	}
@@ -724,7 +769,7 @@ async function fsClearBuildDirectory(
 ) {
 	logger.info('Clearing build directory...')
 	try {
-		await fs.rm(config?.defaults.outputDir, { recursive: true })
+		await fs.rm(config.defaults.outputDir, { recursive: true })
 	} catch (err) {
 		if (err.code !== 'ENOENT') throw err
 	}
@@ -735,7 +780,7 @@ async function fsPopulateContentMap(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 ) {
-	const pw = new PathScurry(config?.defaults.contentDir)
+	const pw = new PathScurry(config.defaults.contentDir)
 	for await (const entry of pw) {
 		if (!entry.isFile()) {
 			continue
@@ -763,13 +808,12 @@ async function fsRegisterHandlebarsHelpers(
 	for (const partial in handlebars.partials) {
 		handlebars.unregisterPartial(partial)
 	}
-
 	for (const dirent of [
 		...(await fs.readdir(path.join(import.meta.dirname, '../resources/partials'), {
 			withFileTypes: true,
 		})),
 		...(await fs
-			.readdir(config?.defaults.partialDir, { withFileTypes: true })
+			.readdir(config.defaults.partialDir, { withFileTypes: true })
 			.catch((err) => {
 				if (err.code === 'ENOENT') {
 					return []
@@ -795,6 +839,12 @@ async function fsRegisterHandlebarsHelpers(
 	for (const helper in config.handlebarsHelpers) {
 		handlebars.registerHelper(helper, config.handlebarsHelpers[helper])
 	}
+	handlebars.registerHelper(
+		'eq',
+		(/** @type {unknown} */ left, /** @type {unknown} */ right) => {
+			return left === right
+		},
+	)
 
 	HandlebarsInstance = handlebars
 }
@@ -805,19 +855,19 @@ async function addAllContentFilesToFileQueue(
 	/** @type {Options} */ options,
 ) {
 	if (!options.positionals[0]) {
-		const pw = new PathScurry(config?.defaults.contentDir)
+		const pw = new PathScurry(config.defaults.contentDir)
 		for await (const entry of pw) {
 			if (!entry.isFile()) {
 				continue
 			}
 
 			const inputFile = path.join(entry.parentPath, entry.name)
-			const inputUri = path.relative(config?.defaults.contentDir, inputFile)
+			const inputUri = path.relative(config.defaults.contentDir, inputFile)
 			fileQueue.push(inputUri)
 		}
 	} else {
-		for await (const inputUri of globIterateSync(options.positionals[0], {
-			cwd: config?.defaults.contentDir,
+		for await (const inputUri of globIterate(options.positionals[0], {
+			cwd: config.defaults.contentDir,
 			absolute: false,
 			dot: true,
 			nodir: true,
@@ -832,7 +882,6 @@ async function convertInputUriToOutputUri(
 	/** @type {Options} */ options,
 	/** @type {string} */ inputUri,
 	/** @type {TenFile} */ tenFile,
-	/** @type {TenRoute} */ tenRoute,
 ) {
 	if (config?.transformUri) {
 		inputUri = config.transformUri(inputUri)
@@ -864,13 +913,12 @@ async function convertInputUriToOutputUri(
 			return meta.slug
 		}
 
-		return tenRoute?.slug ?? path.basename(path.dirname(inputUri))
+		return path.basename(path.dirname(inputUri))
 	}
 }
 
 async function utilExtractLayout(
 	/** @type {Config} */ config,
-	/** @type {Options} */ options,
 	/** @type {(Buffer | string | undefined)[]} */ layouts,
 ) {
 	for (const layout of layouts) {
@@ -886,7 +934,7 @@ async function utilExtractLayout(
 				return await fs.readFile(file1, 'utf-8')
 			}
 
-			const file2 = path.join(config?.defaults.layoutDir, layout)
+			const file2 = path.join(config.defaults.layoutDir, layout)
 			if (await utilFileExists(file2)) {
 				return await fs.readFile(file2, 'utf-8')
 			}
@@ -896,27 +944,48 @@ async function utilExtractLayout(
 	}
 }
 
-/** @returns {Promise<[TenFile, TenRoute]>} */
-async function utilImportJs(
-	/** @type {Config} */ config,
-	/** @type {Options} */ options,
-	/** @type {string} */ inputFile,
-) {
-	return await Promise.all([
-		await import(
-			path.join(path.dirname(inputFile), path.parse(inputFile).base + '.ten.js')
-		).catch((err) => {
-			if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
-		}),
-		await import(path.join(path.dirname(inputFile), 'route.ten.js')).catch((err) => {
-			if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
-		}),
-	])
-}
-
 async function utilFileExists(/** @type {string} */ file) {
 	return await fs
 		.stat(file)
 		.then(() => true)
 		.catch(() => false)
+}
+
+async function utilOnConfigFileChange(
+	/** @type {Options} */ options,
+	/** @type {() => void | Promise<void>} */ cb,
+) {
+	const configFile = path.join(process.cwd(), options.dir, 'ten.config.js')
+	fsCb.watch(
+		configFile,
+		{},
+		debounce(async (eventType) => {
+			if (eventType === 'change') {
+				await cb()
+			}
+		}, 100),
+	)
+}
+
+function utilServeStatic(
+	/** @type {H3Event<EventHandlerRequest>} */ event,
+	/** @type {string} */ staticDir,
+) {
+	return serveStatic(event, {
+		getContents(uri) {
+			return fs.readFile(path.join(staticDir, uri))
+		},
+		async getMeta(uri) {
+			const stats = await fs.stat(path.join(staticDir, uri)).catch(() => null)
+
+			if (!stats?.isFile()) {
+				return
+			}
+
+			return {
+				size: stats.size,
+				mtime: stats.mtimeMs,
+			}
+		},
+	})
 }

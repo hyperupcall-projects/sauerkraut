@@ -38,23 +38,20 @@ export type TenFile = {
 	): Promise<Record<PropertyKey, any>>
 }
 
-export type TenRoute = {
-	slug?: string
-}
-
 export type Options = {
 	dir: string
-	command: 'serve' | 'watch' | 'build' | 'new'
+	command: 'serve' | 'build' | 'new'
 	clean: boolean
+	watch: boolean
 	verbose: boolean
 	positionals: string[]
+	env: '' | 'development'
 }
 
 export type Page = {
 	inputFile: string
 	inputUri: string
 	tenFile: TenFile
-	tenRoute: TenRoute
 	parameters: Record<PropertyKey, any>
 	outputUri: string
 }
