@@ -1,12 +1,6 @@
 # Ten <!-- omit from toc -->
 
-Ten will be a static site generator / content management system / web framework solution. I created it because:
-
-- I want my website code to last for decades
-  - Frameworks like Hugo, Zola, etc. will eventually go the way of Jekyll
-  - Migrating working code is a waste of time
-- It's easier to implement bespoke features
-  - I have a lot of cool ideas that use [knowledge tools](https://github.com/fox-lists/catalog-knowledge-tools)
+My tool for building websites. See [philosophy](#philosophy) for details.
 
 ## Plans <!-- omit from toc -->
 
@@ -19,6 +13,7 @@ Ten will be a static site generator / content management system / web framework 
 
 ## Introduction <!-- omit from toc -->
 
+- [Philosophy](#philosophy)
 - [Summary](#summary)
 - [Content Files](#content-files)
   - [Supported Formats](#supported-formats)
@@ -33,14 +28,25 @@ Ten will be a static site generator / content management system / web framework 
     - [`content/pages/`](#contentpages)
     - [`content/posts/`](#contentposts)
     - [`content/til/`](#contenttil)
-  - [`layouts/`](#layouts)
-  - [`partials/`](#partials)
   - [`static/`](#static)
 - [Older Ideas](#older-ideas)
 
+## Philosophy
+
+Sauerkraut is meant to be a stable tool for building websites. It:
+
+- Avoids using popular frameworks like [Next.js](https://nextjs.org) and [Astro](https://astro.build)
+  - A tool that lasts for decades must detach from JavaScript framework boom-bust cycles
+- Uses libraries that solve general problems with a focused, composable, small solution
+  - When libraries are inevitably superseded, replacing them should take minutes
+
+But, sauerkraut is meant to be module enough to allow for easy experimentation. It:
+
+- Should easily integrate with [various knowledge tools](https://github.com/fox-lists/catalog-knowledge-tools)
+
 ## Summary
 
-Ten is a static site generator. Conventionally, it recursively reads input files from `content/`. Then, it processes each file path and content. Finally, it writes the result path and content to `build/`.
+Sauerkraut is a static site generator. Conventionally, it recursively reads input files from `content/`. Then, it processes each file path and content. Finally, it writes the result path and content to `build/`.
 
 ## Content Files
 
@@ -63,20 +69,13 @@ This makes it easier to edit files in IDEs (unlike Next.js's `page.js`).
 
 The following formats are supported:
 
-#### HTML, XML
+#### JSX
 
-These files are processed with the templating engine [Handlebars](https://handlebarsjs.com).
-
-Templates can use the following variables:
-
-- `Page` (layouts & partials, pages)
-- `Title` (layouts & partials, pages)
-- `Env` (layouts & partials, pages)
-- `Body` (layouts & partials)
+These files are processed with [esbuild](https://github.com/evanw/esbuild). Typically, they use [Nano JSX](https://github.com/nanojsx/nano).
 
 #### Markdown
 
-These files are process with the markdown parser [markdown-it](https://github.com/markdown-it/markdown-it).
+These files are processed with the markdown parser [markdown-it](https://github.com/markdown-it/markdown-it).
 
 Markdown files support the following features:
 
@@ -136,14 +135,6 @@ Where output files are written to.
 ### `content/`
 
 User-generated content.
-
-### `layouts/`
-
-Handlebars templates that are applied to all pages and posts. Individual pages and posts can specify a particular template in the frontmatter using the `layout` property.
-
-### `partials/`
-
-Handlebars partials that can be used in any template or HTML file.
 
 ### `static/`
 

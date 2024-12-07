@@ -13,7 +13,17 @@ export type Config = {
 
 	transformUri(uri: string): string
 
-	decideLayout(config: Config, options: Options, page: Page): string | Promise<string>
+	renderLayout(
+		layoutName: string,
+		vars: {
+			page: Page
+			title: string
+			env: Env
+			body: string
+		},
+		config: Config,
+		options: Options,
+	): string | Promise<string>
 
 	validateFrontmatter(inputFile: string, frontmatter: Frontmatter): Frontmatter
 

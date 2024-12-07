@@ -1,11 +1,11 @@
 {
-	"name": "@hyperupcall/ten",
+	"name": "@hyperupcall/sauerkraut",
 	"version": "0.4.0",
 	"type": "module",
 	"description": "",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/fox-incubating/ten"
+		"url": "https://github.com/fox-incubating/sauerkraut"
 	},
 	"bugs": {
 		"url": "https://github.com/fox-incubating/ten/issues"
@@ -22,17 +22,17 @@
 	"scripts": {
 		"format": "hyperupcall-scripts-nodejs format",
 		"lint": "hyperupcall-scripts-nodejs lint",
-		"test": "node --import ./src/register.js ./src/test.js",
-		"test:only": "node --import ./src/register.js --test-only ./src/test.js"
+		"test": "node ./src/test.js",
+		"test:only": "node --test-only ./src/test.js"
 	},
 	"dependencies": {
 		"@parcel/watcher": "^2.5.0",
 		"@shikijs/markdown-it": "^1.24.0",
 		"ansi-escapes": "^7.0.0",
-		"chalk": "^5.3.0",
 		"cheerio": "^1.0.0",
 		"consola": "^3.2.3",
 		"debounce": "^2.2.0",
+		"esbuild": "^0.24.0",
 		"glob": "^11.0.0",
 		"h3": "^1.13.0",
 		"handlebars": "^4.7.8",
@@ -42,6 +42,7 @@
 		"markdown-it-emoji": "^3.0.0",
 		"mermaid": "^11.4.1",
 		"mime-types": "^2.1.35",
+		"nano-jsx": "^0.1.0",
 		"path-scurry": "^2.0.0",
 		"smol-toml": "^1.3.1",
 		"valibot": "^0.42.1"
