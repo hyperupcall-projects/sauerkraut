@@ -151,7 +151,7 @@ if (
 
 export async function main() {
 	logger.debug('Starting main() function...')
-	const helpText = `ten [--dir|-D=...] <subcommand> [options]
+	const helpText = `sauerkraut [--dir|-D=...] <subcommand> [options]
 	Subcommands:
 		build [--clean] [--watch] [glob]
 		serve [glob]

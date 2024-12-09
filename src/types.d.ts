@@ -1,4 +1,4 @@
-export as namespace Ten
+export as namespace Sauerkraut
 
 export type Config = {
 	defaults: {

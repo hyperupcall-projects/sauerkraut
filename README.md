@@ -1,4 +1,4 @@
-# Ten <!-- omit from toc -->
+# Sauerkraut <!-- omit from toc -->
 
 My tool for building websites. See [philosophy](#philosophy) for details.
 

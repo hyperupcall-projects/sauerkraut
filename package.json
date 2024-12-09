@@ -2,23 +2,22 @@
 	"name": "sauerkraut",
 	"version": "0.4.1",
 	"type": "module",
-	"description": "",
+	"description": "My SSG, SSR & CMS solution.",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/fox-incubating/sauerkraut"
 	},
 	"bugs": {
-		"url": "https://github.com/fox-incubating/ten/issues"
+		"url": "https://github.com/fox-incubating/sauerkraut/issues"
 	},
 	"author": "Edwin Kofler <edwin@kofler.dev> (https://edwinkofler.com)",
 	"license": "MPL-2.0",
 	"private": false,
 	"bin": {
-		"ten": "./bin/ten.js"
+		"sauerkraut": "./bin/sauerkraut.js"
 	},
 	"main": "index.js",
 	"types": "./src/types.d.ts",
-	"keywords": [],
 	"scripts": {
 		"format": "hyperupcall-scripts-nodejs format",
 		"lint": "hyperupcall-scripts-nodejs lint",
