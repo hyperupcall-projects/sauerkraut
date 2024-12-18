@@ -4,65 +4,47 @@ import module from 'node:module'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-import handlebarsImport from 'handlebars'
 import { execa } from 'execa'
 import dedent from 'dedent'
 
 import { commandBuild, logger } from './ten.js'
 
-module.register(url.pathToFileURL(path.join(import.meta.dirname, './hot.js')))
+module.register(url.pathToFileURL(path.join(import.meta.dirname, './test.hot.js')))
 
 const Filename = new URL(import.meta.url).pathname
 const Dirname = path.dirname(Filename)
 const TestDataDir = path.join(Dirname, './testdata')
 const OriginalCwd = process.cwd()
 const Ctx = Object.freeze({
-	singletons: {
-		handlebars: handlebarsImport.create(),
-	},
-	defaults: {
-		rootDir: TestDataDir,
-		cacheFile: path.join(TestDataDir, '.cache/cache.json'),
-		contentDir: path.join(TestDataDir, 'content'),
-		layoutDir: path.join(TestDataDir, 'layouts'),
-		partialsDir: path.join(TestDataDir, 'partials'),
-		staticDir: path.join(TestDataDir, 'static'),
-		outputDir: path.join(TestDataDir, 'build'),
-	},
+	rootDir: TestDataDir,
+	contentDir: path.join(TestDataDir, 'content'),
+	staticDir: path.join(TestDataDir, 'static'),
+	outputDir: path.join(TestDataDir, 'build'),
 	options: {
 		clean: false,
 		verbose: false,
 		noCache: true,
 	},
-	config: {
-		customUriTransform(/** @type {string} */ uri) {
-			return uri
-		},
-		getLayout(
-			/** @type {Record<PropertyKey, unknown>} */ frontmatter,
-			/** @type {ContentForm} */ contentForm,
-		) {
-			return Buffer.from(
-				dedent`
-					<!DOCTYPE html>
-					<html>
-					<head>
-						<meta charset="UTF-8">
-						<meta name="viewport" content="width=device-width, initial-scale=1.0">
-					</head>
-					<body>
-						{{__body}}
-					</body>
-					</html>\n`,
-			)
-		},
-		validateFrontmatter(
-			/** @type {string} */ inputFile,
-			/** @type {Partial<Frontmatter>} */ frontmatter,
-			/** @type {ContentForm} */ contentForm,
-		) {
-			return frontmatter
-		},
+	customUriTransform(/** @type {string} */ uri) {
+		return uri
+	},
+	getLayout(
+		/** @type {Record<PropertyKey, unknown>} */ frontmatter,
+		/** @type {ContentForm} */ contentForm,
+	) {
+		return Buffer.from(
+			dedent`
+				<!DOCTYPE html>
+				<html>
+				<head>
+					<meta charset="UTF-8">
+					<meta name="viewport" content="width=device-width, initial-scale=1.0">
+				</head>
+				<body>
+					{{__body}}
+				</body>
+				</html>\n`,
+		)
 	},
 })
 

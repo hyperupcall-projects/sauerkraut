@@ -34,5 +34,6 @@ if (positionals[0] === 'serve' || (positionals[0] === 'build' && values.watch)) 
 			process.exit(0)
 		})
 } else {
-	await import('../src/sauerkraut.js')
+	const { main } = await import('../src/sauerkraut.js')
+	main()
 }

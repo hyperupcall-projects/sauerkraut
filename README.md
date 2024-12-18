@@ -4,9 +4,10 @@ My tool for building websites. See [philosophy](#philosophy) for details.
 
 ## Plans <!-- omit from toc -->
 
-- re-add watch mode (to _build_ and _serve_)
-- Add overlay to all pages to see info of some sort, what layout, dep tree, etc.
-- instead of rewriting something like `mathematics/mathematics.html` to `mathematics/index.html`, create a redirect at `index.html` instead. Or, just fix the thing so it only rewrites content files (.md not .cards.json). Related: autogenerate index.html
+- do not rewrite mathematics/mathematics.cards.json to index.html
+- file.cards.json should generate file-cards.html
+- Autogenerate index.html?
+- "Daily/", etc. categories?
 - Blog RSS feed and fix tags/categories in dev server
 - later: Linter to always ensure trailing slash for local URLs
 - later: for each page autogenerate: references, backreferences, other meatdata, tags, etc.
@@ -14,6 +15,7 @@ My tool for building websites. See [philosophy](#philosophy) for details.
 ## Introduction <!-- omit from toc -->
 
 - [Philosophy](#philosophy)
+- [Usage](#usage)
 - [Summary](#summary)
 - [Content Files](#content-files)
   - [Supported Formats](#supported-formats)
@@ -33,20 +35,34 @@ My tool for building websites. See [philosophy](#philosophy) for details.
 
 ## Philosophy
 
-Sauerkraut is meant to be a stable tool for building websites. It:
+Sauerkraut is my tool for building websites. It:
 
 - Avoids using popular frameworks like [Next.js](https://nextjs.org) and [Astro](https://astro.build)
-  - A tool that lasts for decades must detach from JavaScript framework boom-bust cycles
+  - To detatch from JavaScript framework boom-bust cycles
 - Uses libraries that solve general problems with a focused, composable, small solution
   - When libraries are inevitably superseded, replacing them should take minutes
+  - For example, when serving minature apps, I use [esbuild](https://esbuild.github.io) & "manually" do SSR instead of using a [Vite](https://vite.dev)-based framework
+  - For example, when serving content, I "AOT" bundle necessary libraries with [Rollup](https://rollupjs.org) and use them within `<script type="module">` tags
+- Integrates with popular tools like [KaTeX](https://katex.org) and [Mermaid](https://mermaid.js.org)
+  - See a full list under [Supported Formats](#supported-formats)
+  - Later, more integrations will be implemented [from this list](https://github.com/fox-lists/catalog-knowledge-tools)
 
-But, sauerkraut is meant to be module enough to allow for easy experimentation. It:
+## Usage
 
-- Should easily integrate with [various knowledge tools](https://github.com/fox-lists/catalog-knowledge-tools)
+In a new directory,
+
+```bash
+pnpm init
+pnpm install sauerkraut
+mkdir -p ./content
+printf '%s\n' '# Hello, World!' > ./content/index.md
+./node_modules/.bin/sauerkraut
+```
 
 ## Summary
 
 Sauerkraut is a static site generator. Conventionally, it recursively reads input files from `content/`. Then, it processes each file path and content. Finally, it writes the result path and content to `build/`.
+
 
 ## Content Files
 

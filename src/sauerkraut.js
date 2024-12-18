@@ -28,11 +28,14 @@ import esbuild from 'esbuild'
 import dedent from 'dedent'
 import prettier from 'prettier'
 import express from 'express'
+import bodyParser from 'body-parser'
+import { Html } from './template.js'
 
 /**
  * @import { AddressInfo } from 'node:net'
+ * @import { PathBase } from 'path-scurry'
  * @import { PackageJson } from 'type-fest'
- * @import { TenFile, Options, Page, Frontmatter } from './types.d.ts'
+ * @import { Config, SkFile, Options, Page, Frontmatter } from './types.d.ts'
  * @typedef {Awaited<ReturnType<utilLoadConfig>>} Config
  */
 
@@ -166,7 +169,8 @@ export async function commandServe(
 	await fsPopulateContentMap(contentMap, config, options)
 
 	const app = express()
-	app.use('/static', express.static(config.defaults.staticDir))
+	app.use(bodyParser.json())
+	app.use('/static', express.static(config.staticDir))
 	app.use(
 		'/static',
 		express.static(path.join(import.meta.dirname, '../resources/static')),
@@ -180,7 +184,7 @@ export async function commandServe(
 				return
 			}
 
-			const inputFile = path.join(config.defaults.contentDir, inputUri)
+			const inputFile = path.join(config.contentDir, inputUri)
 			console.info(
 				`${styleText('magenta', 'Content Request')}: ${req.url}\t\t\t${styleText('gray', `(from ${req.url})`)}`,
 			)
@@ -207,7 +211,77 @@ export async function commandServe(
 	})
 	app.post('/api/get-content-tree', (req, res) => {
 		const json = {}
+		const walker = utilGetContentDirSyncWalker(config)
+		for (let entry of walker) {
+			const parents = []
+			let /** @type {PathBase | undefined} */ p = entry
+			while (p && p.fullpath() !== path.resolve(config.contentDir)) {
+				parents.push(p)
+				p = p.parent
+			}
+
+			let node = json
+			for (let i = parents.length - 1; i >= 0; --i) {
+				const part = parents[i]
+
+				if (!(part.name in node)) {
+					if (part.isDirectory()) {
+						node[part.name] = {}
+					} else {
+						node[part.name] = null
+					}
+				}
+				node = node[part.name]
+			}
+		}
+
 		res.send(JSON.stringify(json, null, '\t'))
+	})
+	app.post('/api/get-content-list', async (req, res) => {
+		const json = []
+		const walker = utilGetContentDirSyncWalker(config)
+		for (let entry of walker) {
+			if (entry.isDirectory()) {
+				continue
+			}
+
+			const filepath = path.relative(config.contentDir, entry.fullpath())
+			if (filepath !== '') {
+				// TODO tenConfig
+				json.push(await convertInputUriToOutputUri(config, options, filepath, {}))
+			}
+		}
+
+		json.sort()
+		res.send(json)
+	})
+	app.post('/api/read-content-file', (req, res) => {
+		const { uri } = req.body
+
+		try {
+			const filepath = path.join(config.contentDir, contentMap.get(uri))
+			res.sendFile(filepath)
+		} catch (err) {
+			console.error(err)
+			res.send('undefined')
+		}
+	})
+	app.post('/api/write-content-file', async (req, res) => {
+		const { uri, content } = req.body
+
+		const filepath = path.join(config.contentDir, contentMap.get(uri))
+		try {
+			if (content === null || content === undefined) {
+				throw new TypeError('Invalid "content"')
+			}
+			await fsp.writeFile(filepath, content)
+			res.send({
+				success: true,
+			})
+		} catch (err) {
+			console.error(err)
+			res.send({ success: false })
+		}
 	})
 
 	const server = http.createServer(app)
@@ -232,7 +306,7 @@ export async function commandBuild(
 		await fsClearBuildDirectory(config, options)
 	}
 	// await watcher.subscribe(
-	// 	config.defaults.rootDir,
+	// 	config.rootDir,
 	// 	(err, events) => {
 	// 		if (err) {
 	// 			console.error(err)
@@ -252,13 +326,13 @@ export async function commandBuild(
 	// 		}
 	// 	},
 	// 	{
-	// 		ignore: [config.defaults.outputDir],
+	// 		ignore: [config.outputDir],
 	// 	},
 	// )
 
 	// process.on('SIGINT', async () => {
 	// 	await fsp.mkdir('.hidden', { recursive: true })
-	// 	await watcher.writeSnapshot(config.defaults.rootDir, '.hidden/.ten-snapshot.txt')
+	// 	await watcher.writeSnapshot(config.rootDir, '.hidden/.sauerkraut-snapshot.txt')
 	// 	process.exit(0)
 	// })
 
@@ -296,11 +370,13 @@ export async function commandBuild(
 	if (bundle) {
 		await bundle.close()
 	}
+
 	for (const [outputFilename, identifier] of Object.entries({
 		'pico.css': '@picocss/pico',
 		'github-markdown-css.css': 'github-markdown-css',
 		'pure.css': 'purecss/build/pure.css',
 		'bulma.css': 'bulma',
+		'katex.css': 'katex/dist/katex.css',
 		'fox-css.css': 'fox-css/dist/fox-min.css',
 	})) {
 		const file = url.fileURLToPath(import.meta.resolve(identifier))
@@ -342,11 +418,7 @@ export async function commandNew(
 		.toISOString()
 		.replace('T', ' ')
 		.replace(/\.[0-9]+Z$/, 'Z')
-	const markdownFile = path.join(
-		config.defaults.contentDir,
-		'posts/drafts',
-		`${slug}/${slug}.md`,
-	)
+	const markdownFile = path.join(config.contentDir, 'posts/drafts', `${slug}/${slug}.md`)
 	await fsp.mkdir(path.dirname(markdownFile), { recursive: true })
 	await fsp.writeFile(
 		markdownFile,
@@ -377,9 +449,9 @@ async function iterateFileQueueByCallback(
 
 	async function cb() {
 		if (fileQueue.length > 0) {
-			const inputFile = path.join(config.defaults.contentDir, fileQueue[0])
+			const inputFile = path.join(config.contentDir, fileQueue[0])
 			for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-				const outputUrl = path.join(config.defaults.outputDir, page.outputUri)
+				const outputUrl = path.join(config.outputDir, page.outputUri)
 
 				await fsp.mkdir(path.dirname(outputUrl), { recursive: true })
 				const result = await handleContentFile(config, options, page)
@@ -410,9 +482,9 @@ async function iterateFileQueueByWhileLoop(
 	/** @type {Options} */ options,
 ) {
 	while (fileQueue.length > 0) {
-		const inputFile = path.join(config.defaults.contentDir, fileQueue[0])
+		const inputFile = path.join(config.contentDir, fileQueue[0])
 		for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-			const outputFile = path.join(config.defaults.outputDir, page.outputUri)
+			const outputFile = path.join(config.outputDir, page.outputUri)
 
 			await fsp.mkdir(path.dirname(outputFile), { recursive: true })
 			const result = await handleContentFile(config, options, page)
@@ -434,31 +506,31 @@ async function* yieldPagesFromInputFile(
 	/** @type {Options} */ options,
 	/** @type {string} */ inputFile,
 ) {
-	const inputUri = path.relative(config.defaults.contentDir, inputFile)
-	const tenFilepath = path.join(
+	const inputUri = path.relative(config.contentDir, inputFile)
+	const skFilepath = path.join(
 		path.dirname(inputFile),
-		path.parse(inputFile).base + '.ten.js',
+		path.parse(inputFile).base + '.sk.js',
 	)
-	const tenFile = await import(tenFilepath).catch((err) => {
+	const skFile = await import(skFilepath).catch((err) => {
 		if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
 	})
-	const outputUri = await convertInputUriToOutputUri(config, options, inputUri, tenFile)
+	const outputUri = await convertInputUriToOutputUri(config, options, inputUri, skFile)
 
 	/** @type {Page} */
 	const page = {
 		inputFile,
 		inputUri,
-		tenFile,
+		skFile,
 		parameters: {},
 		outputUri,
 	}
 
-	if (page.tenFile?.GenerateSlugMapping) {
-		const slugMap = (await page.tenFile.GenerateSlugMapping({ config, options })) ?? []
+	if (page.skFile?.GenerateSlugMapping) {
+		const slugMap = (await page.skFile.GenerateSlugMapping({ config, options })) ?? []
 		const originalOutputUri = page.outputUri
 		for (const slug of slugMap) {
 			const data =
-				(await page.tenFile?.GenerateTemplateVariables?.(
+				(await page.skFile?.GenerateTemplateVariables?.(
 					{ config, options },
 					{
 						slug: slug.slug,
@@ -473,7 +545,7 @@ async function* yieldPagesFromInputFile(
 		}
 	} else {
 		const data =
-			(await page.tenFile?.GenerateTemplateVariables?.({ config, options }, {})) ?? {}
+			(await page.skFile?.GenerateTemplateVariables?.({ config, options }, {})) ?? {}
 		page.parameters = data
 
 		yield page
@@ -485,23 +557,19 @@ async function handleContentFile(
 	/** @type {Options} */ options,
 	/** @type {Page} */ page,
 ) {
-	if (page.inputUri.startsWith('/__/')) {
-		return null // TODO
-	}
-
 	if (
 		// prettier-ignore
 		(page.inputUri.includes('/_') ||
-		page.inputUri.includes('_/'),
-		path.parse(page.inputUri).name.endsWith('_') ||
-		page.inputUri.endsWith('.ten.js'))
+			page.inputUri.includes('_/'),
+			path.parse(page.inputUri).name.endsWith('_') ||
+			page.inputUri.endsWith('.sk.js'))
 	) {
 		// Do not copy file.
 	} else if (page.inputUri.includes('/drafts/')) {
 		// Do not copy file.
 	} else if (page.inputUri.endsWith('.md')) {
-		let markdown = await fs.readFile(
-			path.join(config.defaults.contentDir, page.inputUri),
+		let markdown = await fsp.readFile(
+			path.join(config.contentDir, page.inputUri),
 			'utf-8',
 		)
 
@@ -517,21 +585,22 @@ async function handleContentFile(
 				frontmatter: /** @type {Frontmatter} */ (
 					config.validateFrontmatter(
 						config,
-						path.join(config.defaults.contentDir, page.inputUri),
+						path.join(config.contentDir, page.inputUri),
 						frontmatter,
 					)
 				),
 			}
 		})()
 
-		let outputHtml = config.createHtml({
-			env: options.env,
-			layout: frontmatter?.layout ?? '',
-			title: frontmatter.title ?? '',
-			head: '',
-			prebody: '',
-			body: inputHtml,
-			params: {
+		let outputHtml = await config.createHtml(
+			config,
+			{
+				layout: frontmatter?.layout ?? '',
+				body: inputHtml,
+				environment: options.env,
+				title: frontmatter.title ?? '',
+			},
+			{
 				__frontmatter: frontmatter,
 				__date: (() => {
 					// TODO
@@ -543,31 +612,24 @@ async function handleContentFile(
 					return `${date.getFullYear()}-${date.getMonth()}-${date.getDay()}`
 				})(),
 			},
-		})
+		)
 		outputHtml = await processHtml(outputHtml)
-		outputHtml = await prettier.format(outputHtml, {
-			filepath: '.html',
-			useTabs: true,
-			tabWidth: 3,
-		})
 
 		return outputHtml
 	} else if (page.inputUri.endsWith('.html') || page.inputUri.endsWith('.xml')) {
 		const inputHtml = await fsp.readFile(
-			path.join(config.defaults.contentDir, page.inputUri),
+			path.join(config.contentDir, page.inputUri),
 			'utf-8',
 		)
 
-		const meta = await page.tenFile?.Meta?.({ config, options })
-		const head = await page.tenFile?.Head?.({ config, options })
+		const meta = await page.skFile?.Meta?.({ config, options })
+		const head = await page.skFile?.Head?.({ config, options })
 
-		let outputHtml = config.createHtml({
-			env: options.env,
+		let outputHtml = await config.createHtml(config, {
 			layout: meta?.layout ?? '',
-			title: head?.title ?? config.defaults.title,
-			head: '',
-			prebody: head?.content ?? '',
 			body: inputHtml,
+			environment: options.env,
+			title: head?.title ?? config.title,
 		})
 		outputHtml = await processHtml(outputHtml)
 		outputHtml = await prettier.format(outputHtml, {
@@ -578,19 +640,12 @@ async function handleContentFile(
 
 		return outputHtml
 	} else if (page.inputUri.endsWith('.cards.json')) {
-		let json = await fsp.readFile(
-			path.join(config.defaults.contentDir, page.inputUri),
-			'utf-8',
-		)
+		let json = await fsp.readFile(path.join(config.contentDir, page.inputUri), 'utf-8')
 		let title = `${JSON.parse(json).author}'s flashcards`
 
-		const jsx = await fsp.readFile(
-			path.join(import.meta.dirname, '../resources/apps/flashcards.jsx'),
-			'utf-8',
-		)
 		const result = await esbuild.build({
 			entryPoints: [path.join(import.meta.dirname, '../resources/apps/flashcards.jsx')],
-			outfile: path.join(config.defaults.outputDir, page.outputUri),
+			outfile: path.join(config.outputDir, page.outputUri),
 			bundle: true,
 			jsx: 'transform',
 			jsxFactory: 'h',
@@ -656,7 +711,14 @@ async function handleContentFile(
 			// })
 		}
 
-		return $.html()
+		let outputHtml = $.html()
+		outputHtml = await prettier.format(outputHtml, {
+			filepath: '.html',
+			useTabs: true,
+			tabWidth: 3,
+		})
+
+		return outputHtml
 	}
 }
 
@@ -665,7 +727,7 @@ async function fsCopyStaticFiles(
 	/** @type {Options} */ options,
 ) {
 	try {
-		await fsp.cp(config.defaults.staticDir, config.defaults.outputDir, {
+		await fsp.cp(config.staticDir, config.outputDir, {
 			recursive: true,
 		})
 	} catch (err) {
@@ -675,7 +737,7 @@ async function fsCopyStaticFiles(
 	try {
 		await fsp.cp(
 			path.join(import.meta.dirname, '../resources/static'),
-			config.defaults.outputDir,
+			config.outputDir,
 			{
 				recursive: true,
 			},
@@ -691,7 +753,7 @@ async function fsClearBuildDirectory(
 ) {
 	logger.info('Clearing build directory...')
 	try {
-		await fs.rm(config.defaults.outputDir, { recursive: true })
+		await fsp.rm(config.outputDir, { recursive: true })
 	} catch (err) {
 		if (err.code !== 'ENOENT') throw err
 	}
@@ -702,15 +764,7 @@ async function fsPopulateContentMap(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 ) {
-	const walker = new PathScurry(config.defaults.contentDir).iterateSync({
-		filter(entry) {
-			return !utilShouldIgnoreName(entry.name, entry.isDirectory())
-		},
-		walkFilter(entry) {
-			// return "false" if should skip walking directory
-			return !utilShouldIgnoreName(entry.name, entry.isDirectory())
-		},
-	})
+	const walker = utilGetContentDirSyncWalker(config)
 	for (const stat of walker) {
 		if (!stat.isFile()) {
 			continue
@@ -732,27 +786,19 @@ async function addAllContentFilesToFileQueue(
 	/** @type {Options} */ options,
 ) {
 	if (!options.positionals[0]) {
-		const walker = new PathScurry(config.defaults.contentDir).iterateSync({
-			filter(entry) {
-				return !utilShouldIgnoreName(entry.name, entry.isDirectory())
-			},
-			walkFilter(entry) {
-				// return "false" if should skip walking directory
-				return !utilShouldIgnoreName(entry.name, entry.isDirectory())
-			},
-		})
+		const walker = utilGetContentDirSyncWalker(config)
 		for (const entry of walker) {
 			if (!entry.isFile()) {
 				continue
 			}
 
 			const inputFile = path.join(entry.parentPath, entry.name)
-			const inputUri = path.relative(config.defaults.contentDir, inputFile)
+			const inputUri = path.relative(config.contentDir, inputFile)
 			fileQueue.push(inputUri)
 		}
 	} else {
 		for await (const inputUri of globIterate(options.positionals[0], {
-			cwd: config.defaults.contentDir,
+			cwd: config.contentDir,
 			absolute: false,
 			dot: true,
 			nodir: true,
@@ -766,12 +812,11 @@ async function convertInputUriToOutputUri(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 	/** @type {string} */ inputUri,
-	/** @type {TenFile} */ tenFile,
+	/** @type {SkFile} */ tenFile,
 ) {
-	if (config?.transformUri) {
-		inputUri = config.transformUri(inputUri)
-	}
+	inputUri = config.transformUri(config, inputUri)
 	inputUri = '/' + inputUri // TODO
+
 	if (inputUri.endsWith('.cards.json')) {
 		inputUri = inputUri.replace(/\.cards\.json$/, '.html')
 	}
@@ -821,89 +866,93 @@ export async function utilLoadConfig(/** @type {string} */ configFile) {
 	}
 
 	function getConfigSchema(/** @type {string} */ rootDir) {
-		const defaults = v.strictObject({
+		return v.strictObject({
 			title: v.optional(v.string(), 'Website'),
 			rootDir: v.optional(v.string(), rootDir),
 			contentDir: v.optional(v.string(), path.join(rootDir, 'content')),
 			staticDir: v.optional(v.string(), path.join(rootDir, 'static')),
 			outputDir: v.optional(v.string(), path.join(rootDir, 'build')),
-		})
-
-		return v.strictObject({
-			defaults: v.optional(defaults, v.getDefaults(defaults)),
 			transformUri: v.optional(
 				v.pipe(
 					v.function(),
 					v.transform((func) => {
-						return (/** @type {string} */ uri) => v.parse(v.string(), func(uri))
+						/** @type {Config['transformUri']} */
+						return (config, uri) => {
+							return v.parse(v.string(), func(config, uri))
+						}
 					}),
 				),
+				() =>
+					/** @type {Config['transformUri']} */
+					function defaultTransformUri(_config, uri) {
+						return uri
+					},
 			),
 			validateFrontmatter: v.optional(
 				v.pipe(
 					v.function(),
 					v.transform((func) => {
-						return (
-							/** @type {unknown} */ config,
-							/** @type {string} */ inputFile,
-							/** @type {Frontmatter} */ frontmatter,
-						) =>
-							v.parse(v.record(v.string(), v.any()), func(config, inputFile, frontmatter))
+						/** @type {Config['validateFrontmatter']} */
+						return (config, inputFile, frontmatter) => {
+							return v.parse(
+								v.record(v.string(), v.any()),
+								func(config, inputFile, frontmatter),
+							)
+						}
 					}),
 				),
-				() => (/** @type {Record<string, any>} */ frontmatter) => frontmatter,
+				() =>
+					/** @type {Config['validateFrontmatter']} */
+					function defaultValidateFrontmatter(_config, _inputFile, frontmatter) {
+						return frontmatter
+					},
 			),
 			createHtml: v.optional(
 				v.pipe(
 					v.function(),
 					v.transform((func) => {
-						const html = dedent
-						const defaultHead = html` <meta charset="UTF-8" />
-							<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-							<meta name="referrer" content="same-origin" />
-							<link rel="stylesheet" href="/static/components/overlay.css" />
-							<script defer src="/static/components/overlay.js"></script>
-							<style>
-								*,
-								*::before,
-								*::after {
-									box-sizing: border-box;
-								}
-							</style>`
-						const defaultPrebody = html`<div class="__overlay">
-							<div class="__overlay-inner">
-								<button class="__overlay-button">See Stats</button>
-								<div class="__overlay-stats __overlay-stats-hidden">
-									<h3>Stats</h3>
-								</div>
-							</div>
-						</div>`
-
-						return (
-							/** @type {{env: string, layout: string, title: string, head: string, prebody: string, body: string}} */ obj,
-						) => {
-							const prebody =
-								obj.env === 'development' ? defaultPrebody + obj.prebody : obj.prebody
-
-							return v.parse(
-								v.string(),
-								func(Object.assign(obj, { defaultHead, prebody })),
-							)
+						/** @type {Config['createHtml']} */
+						return (config, obj) => {
+							return v.parse(v.string(), func(config, obj))
 						}
 					}),
 				),
-				() => utilCreateHtml,
+				() =>
+					/** @type {Config['createHtml']} */
+					function defaultCreateHtml(_config, obj) {
+						return Html(obj)
+					},
 			),
-			tenHelpers: v.optional(v.record(v.string(), v.function())),
+			tenHelpers: v.optional(
+				v.record(
+					v.string(),
+					v.pipe(
+						v.function(),
+						v.transform((func) => {
+							return () => {
+								return v.parse(v.string(), func())
+							}
+						}),
+					),
+				),
+				() => {
+					return {}
+				},
+			),
 		})
 	}
 }
 
-async function utilFileExists(/** @type {string} */ file) {
-	return await fsp
-		.stat(file)
-		.then(() => true)
-		.catch(() => false)
+function utilGetContentDirSyncWalker(/** @type {Config} */ config) {
+	return new PathScurry(config.contentDir).iterateSync({
+		filter(entry) {
+			return !utilShouldIgnoreName(entry.name, entry.isDirectory())
+		},
+		walkFilter(entry) {
+			// return "false" if should skip walking directory
+			return !utilShouldIgnoreName(entry.name, entry.isDirectory())
+		},
+	})
 }
 
 function utilShouldIgnoreName(
@@ -921,22 +970,4 @@ function utilShouldIgnoreName(
 	}
 
 	return false
-}
-
-export function utilCreateHtml({ title, defaultHead, head, prebody, body }) {
-	const html = dedent
-	// prettier-ignore
-	return html`
-		<!doctype html>
-		<html>
-			<head>
-				${defaultHead}
-				${head}
-				<title>${title}</title>
-			</head>
-			<body>
-				${prebody}
-				${body}
-			</body>
-		</html>`
 }
