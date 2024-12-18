@@ -1,2 +1,4 @@
 node_modules/
 vendor/
+resources/bundled/*
+!resources/bundled/.gitkeep

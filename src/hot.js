@@ -1,4 +1,3 @@
-import path from 'node:path'
 import { URL } from 'node:url'
 
 const map = new Map()
@@ -23,6 +22,6 @@ export const resolve = async (specifier, context, defaultResolve) => {
 	}
 
 	return {
-		url: child.href + '?id=' + map.get(child.pathname),
+		url: child.href + '?id=' + map.get(child.pathname) + 'ZZZ',
 	}
 }

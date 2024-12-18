@@ -94,11 +94,11 @@ Described further in [JavaScript Customization](#website-javascript-customizatio
 
 - `_*`
 
-These are ignored.
+These _directories_ are ignored.
 
 - `*_`
 
-These are ignored.
+These _directories_ are ignored.
 
 ## Website JavaScript Customization
 

@@ -1,6 +1,38 @@
 #!/usr/bin/env node
-import { main } from '../src/sauerkraut.js'
+import path from 'node:path'
+import util from 'node:util'
 
-await main().catch((err) => {
-	console.error(err)
+import nodemon from 'nodemon'
+
+const { values, positionals } = util.parseArgs({
+	allowPositionals: true,
+	strict: false,
+	options: {
+		dir: { type: 'string', default: '.' },
+		watch: { type: 'boolean', default: false },
+	},
 })
+if (positionals.length > 1) {
+	throw new Error('Only one positional argument is allowed')
+}
+
+if (positionals[0] === 'serve' || (positionals[0] === 'build' && values.watch)) {
+	nodemon({
+		script: path.join(import.meta.dirname, '../src/sauerkraut.js'),
+		args: process.argv.slice(2),
+		exitCrash: false,
+		watch: [
+			path.join(import.meta.dirname, '../src'),
+			path.join(process.cwd(), values.dir, 'sauerkraut.config.js'),
+		],
+	})
+		.on('restart', () => {
+			const msg = 'RESTARTING SERVER '
+			console.info(msg + '='.repeat(process.stdout.columns).slice(msg.length))
+		})
+		.on('quit', () => {
+			process.exit(0)
+		})
+} else {
+	await import('../src/sauerkraut.js')
+}

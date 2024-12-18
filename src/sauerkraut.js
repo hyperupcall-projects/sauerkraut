@@ -1,27 +1,20 @@
 #!/usr/bin/env node
 // @ts-check
-import fs from 'node:fs/promises'
-import fsCb from 'node:fs'
 import path from 'node:path'
 import util, { styleText } from 'node:util'
 import url from 'node:url'
-import module from 'node:module'
 import readline from 'node:readline'
+import fs from 'node:fs'
+import fsp from 'node:fs/promises'
+import http from 'node:http'
 
+import { rollup } from 'rollup'
+import { nodeResolve } from '@rollup/plugin-node-resolve'
 import TOML from 'smol-toml'
 import { createConsola } from 'consola'
 import markdownit from 'markdown-it'
 import { full as markdownEmoji } from 'markdown-it-emoji'
 import Shiki from '@shikijs/markdown-it'
-import { listen } from 'listhen'
-import {
-	createApp,
-	createRouter,
-	defineEventHandler,
-	serveStatic,
-	setResponseHeaders,
-	toNodeListener,
-} from 'h3'
 import watcher from '@parcel/watcher'
 import mime from 'mime-types'
 import ansiEscapes from 'ansi-escapes'
@@ -32,76 +25,20 @@ import { PathScurry } from 'path-scurry'
 import { markdownMermaid } from './markdownIt.js'
 import debounce from 'debounce'
 import esbuild from 'esbuild'
-import * as template from './template.js'
+import dedent from 'dedent'
+import prettier from 'prettier'
+import express from 'express'
 
 /**
- * @import { H3Event, EventHandlerRequest } from 'h3'
+ * @import { AddressInfo } from 'node:net'
  * @import { PackageJson } from 'type-fest'
  * @import { TenFile, Options, Page, Frontmatter } from './types.d.ts'
- * @typedef {v.InferOutput<ReturnType<typeof getConfigSchema>>} Config
+ * @typedef {Awaited<ReturnType<utilLoadConfig>>} Config
  */
-
-module.register(url.pathToFileURL(path.join(import.meta.dirname, './hot.js')))
 
 export const logger = createConsola({
 	level: process.env.DEBUG === undefined ? 3 : 4,
 })
-
-logger.debug('Finished evaluating imports...')
-
-function getConfigSchema(/** @type {string} */ rootDir) {
-	return v.object({
-		defaults: v.strictObject({
-			title: v.string(),
-			rootDir: v.optional(v.string(), rootDir),
-			contentDir: v.optional(v.string(), path.join(rootDir, 'content')),
-			layoutDir: v.optional(v.string(), path.join(rootDir, 'layouts')),
-			partialDir: v.optional(v.string(), path.join(rootDir, 'partials')),
-			staticDir: v.optional(v.string(), path.join(rootDir, 'static')),
-			outputDir: v.optional(v.string(), path.join(rootDir, 'build')),
-		}),
-		transformUri: v.optional(
-			v.pipe(
-				v.function(),
-				v.transform((func) => {
-					return (/** @type {string} */ uri) => v.parse(v.string(), func(uri))
-				}),
-			),
-		),
-		renderLayout: v.optional(
-			v.pipe(
-				v.function(),
-				// TODO
-				// v.transform((func) => {
-				// 	return async (
-				// 		/** @type {Config} */ config,
-				// 		/** @type {Options} */ options,
-				// 		/** @type {Page} */ page,
-				// 	) =>
-				// 		v.parse(
-				// 			v.union([v.undefined(), v.string()]),
-				// 			await func(config, options, page),
-				// 		)
-				// }),
-			),
-		),
-		validateFrontmatter: v.optional(
-			v.pipe(
-				v.function(),
-				v.transform((func) => {
-					return (
-						/** @type {Config} */ config,
-						/** @type {string} */ inputFile,
-						/** @type {Frontmatter} */ frontmatter,
-					) =>
-						v.parse(v.record(v.string(), v.any()), func(config, inputFile, frontmatter))
-				}),
-			),
-			() => () => true,
-		),
-		tenHelpers: v.optional(v.record(v.string(), v.function())),
-	})
-}
 
 const ShikiInstance = await Shiki({
 	langs: [
@@ -150,7 +87,6 @@ if (
 }
 
 export async function main() {
-	logger.debug('Starting main() function...')
 	const helpText = `sauerkraut [--dir|-D=...] <subcommand> [options]
 	Subcommands:
 		build [--clean] [--watch] [glob]
@@ -165,7 +101,7 @@ export async function main() {
 	const { values, positionals } = util.parseArgs({
 		allowPositionals: true,
 		options: {
-			dir: { type: 'string', default: '.', alias: 'D' },
+			dir: { type: 'string', default: '.' },
 			clean: { type: 'boolean', default: false },
 			verbose: { type: 'boolean', default: false },
 			watch: { type: 'boolean', default: false },
@@ -207,8 +143,8 @@ export async function main() {
 		process.exit(1)
 	}
 
-	const configFile = path.join(process.cwd(), options.dir, 'ten.config.js')
-	let config = await loadConfig(configFile)
+	const configFile = path.join(process.cwd(), options.dir, 'sauerkraut.config.js')
+	let config = await utilLoadConfig(configFile)
 	if (options.command === 'serve') {
 		options.env = 'development'
 		await commandServe(config, options)
@@ -220,143 +156,71 @@ export async function main() {
 	} else if (options.command === 'new') {
 		await commandNew(config, options)
 	}
-
-	/** @returns {Promise<Config>} */
-	async function loadConfig(/** @type {string} */ configFile) {
-		if (!(await utilFileExists(configFile))) {
-			logger.error(
-				`File "ten.config.js" not found for project: "${path.dirname(configFile)}"`,
-			)
-			process.exit(1)
-		}
-
-		const /** @type {Config} */ config = await import(configFile)
-		const rootDir = path.dirname(configFile)
-		const configSchema = getConfigSchema(rootDir)
-		const result = v.safeParse(configSchema, config)
-		if (result.success) {
-			return result.output
-		} else {
-			logger.error(`Failed to parse config file: "${configFile}"`)
-			console.error(v.flatten(result.issues))
-			process.exit(1)
-		}
-	}
 }
 
-async function commandServe(
+export async function commandServe(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 ) {
 	const /** @type {Map<string, string>} */ contentMap = new Map()
-
 	await fsPopulateContentMap(contentMap, config, options)
 
-	const app = createApp()
-	const router = createRouter()
-	app.use(router)
+	const app = express()
+	app.use('/static', express.static(config.defaults.staticDir))
+	app.use(
+		'/static',
+		express.static(path.join(import.meta.dirname, '../resources/static')),
+	)
+	app.use(async (req, res, next) => {
+		try {
+			const outputUri = req.url.endsWith('/') ? `${req.url}index.html` : req.url
+			const inputUri = contentMap.get(outputUri)
+			if (!inputUri) {
+				next()
+				return
+			}
 
-	router.get(
-		'/**',
-		defineEventHandler(async (event) => {
-			try {
-				const outputUri = event.path.endsWith('/')
-					? `${event.path}index.html`
-					: event.path
+			const inputFile = path.join(config.defaults.contentDir, inputUri)
+			console.info(
+				`${styleText('magenta', 'Content Request')}: ${req.url}\t\t\t${styleText('gray', `(from ${req.url})`)}`,
+			)
 
-				const inputUri = contentMap.get(outputUri)
-
-				setResponseHeaders(event, {
+			res.setHeaders(
+				new Headers({
 					'Content-Type': mime.lookup(outputUri) || 'text/html',
 					'Transfer-Encoding': 'chunked',
 					'Cache-Control': 'no-cache',
 					Expires: '0',
-				})
-
-				if (inputUri) {
-					const inputFile = path.join(config.defaults.contentDir, inputUri)
-					console.info(
-						`${styleText('magenta', 'Content Request')}: ${event.path}\t\t\t${styleText('gray', `(from ${event.path})`)}`,
-					)
-
-					for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-						const result = await handleContentFile(config, options, page)
-						if (typeof result === 'string') {
-							return result
-						} else {
-							return utilServeStatic(event, path.dirname(page.inputFile))
-						}
-					}
+				}),
+			)
+			for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
+				const result = await handleContentFile(config, options, page)
+				if (typeof result === 'string') {
+					res.send(result)
 				} else {
-					console.info(`${styleText('cyan', 'Static Request')}:  ${event.path}`)
-					const staticDir = event.path.startsWith('/__/')
-						? path.join(import.meta.dirname, '../resources/static')
-						: config.defaults.staticDir
-
-					return utilServeStatic(event, staticDir)
-				}
-			} catch (err) {
-				console.error(err)
-			}
-		}),
-	)
-
-	const listener = await listen(toNodeListener(app), {
-		port: process.env.PORT ?? 3001,
-		showURL: false,
-	})
-	logger.start(`Listening at http://localhost:${listener.address.port}`)
-
-	utilOnConfigFileChange(options, () => {
-		listener.close().then(() => {
-			logger.info('Restarting server...')
-			main()
-		})
-	})
-	process.on('SIGINT', async () => {
-		await listener.close()
-		process.exit(0)
-	})
-}
-
-// TODO
-export async function commandWatch(
-	/** @type {Config} */ config,
-	/** @type {Options} */ options,
-) {
-	if (options.clean) {
-		await fsClearBuildDirectory(config, options)
-	}
-	await watcher.subscribe(
-		config.defaults.rootDir,
-		(err, events) => {
-			if (err) {
-				console.error(err)
-				return
-			}
-
-			for (const event of events) {
-				if (event.type === 'create' || event.type === 'update') {
-					const fileQueue = []
-					addAllContentFilesToFileQueue(fileQueue, config, options)
-					iterateFileQueueByCallback(fileQueue, config, options, {
-						async onEmptyFileQueue() {
-							// await fsCopyStaticFiles(config, options) // TODO
-						},
-					})
+					res.sendFile(path.dirname(page.inputFile))
 				}
 			}
-		},
+		} catch (err) {
+			console.error(err)
+		}
+	})
+	app.post('/api/get-content-tree', (req, res) => {
+		const json = {}
+		res.send(JSON.stringify(json, null, '\t'))
+	})
+
+	const server = http.createServer(app)
+	server.listen(
 		{
-			ignore: [config.defaults.outputDir],
+			host: 'localhost',
+			port: 3005,
+		},
+		() => {
+			const info = /** @type {AddressInfo} */ (server.address())
+			logger.info(`Listening at http://localhost:${info.port}`)
 		},
 	)
-
-	process.on('SIGINT', async () => {
-		await fs.mkdir('.hidden', { recursive: true })
-		await watcher.writeSnapshot(config.defaults.rootDir, '.hidden/.ten-snapshot.txt')
-		process.exit(0)
-	})
 }
 
 export async function commandBuild(
@@ -364,6 +228,39 @@ export async function commandBuild(
 	/** @type {Options} */ options,
 ) {
 	const /** @type {string[]} */ fileQueue = []
+	if (options.clean) {
+		await fsClearBuildDirectory(config, options)
+	}
+	// await watcher.subscribe(
+	// 	config.defaults.rootDir,
+	// 	(err, events) => {
+	// 		if (err) {
+	// 			console.error(err)
+	// 			return
+	// 		}
+
+	// 		for (const event of events) {
+	// 			if (event.type === 'create' || event.type === 'update') {
+	// 				const fileQueue = []
+	// 				addAllContentFilesToFileQueue(fileQueue, config, options)
+	// 				iterateFileQueueByCallback(fileQueue, config, options, {
+	// 					async onEmptyFileQueue() {
+	// 						// await fsCopyStaticFiles(config, options) // TODO
+	// 					},
+	// 				})
+	// 			}
+	// 		}
+	// 	},
+	// 	{
+	// 		ignore: [config.defaults.outputDir],
+	// 	},
+	// )
+
+	// process.on('SIGINT', async () => {
+	// 	await fsp.mkdir('.hidden', { recursive: true })
+	// 	await watcher.writeSnapshot(config.defaults.rootDir, '.hidden/.ten-snapshot.txt')
+	// 	process.exit(0)
+	// })
 
 	if (options.clean) {
 		await fsClearBuildDirectory(config, options)
@@ -371,10 +268,55 @@ export async function commandBuild(
 	await addAllContentFilesToFileQueue(fileQueue, config, options)
 	await iterateFileQueueByWhileLoop(fileQueue, config, options)
 	await fsCopyStaticFiles(config, options)
+
+	let bundle
+	try {
+		bundle = await rollup({
+			input: {
+				katex: 'katex',
+				'katex-auto-render': 'katex/contrib/auto-render',
+				'katex-mhchem': 'katex/contrib/mhchem',
+				'katex-copy-tex': 'katex/contrib/copy-tex',
+				'katex-mathtex-script-type': 'katex/contrib/mathtex-script-type',
+				'katex-render-a11y-string': 'katex/contrib/render-a11y-string',
+				notie: 'notie',
+				// mermaid: 'mermaid/dist/mermaid.esm.mjs',
+				jheat: 'jheat.js',
+			},
+			plugins: [nodeResolve()],
+		})
+		await bundle.write({
+			dir: './resources/bundled',
+			format: 'es',
+		})
+	} catch (error) {
+		console.error(error)
+		process.exit(1)
+	}
+	if (bundle) {
+		await bundle.close()
+	}
+	for (const [outputFilename, identifier] of Object.entries({
+		'pico.css': '@picocss/pico',
+		'github-markdown-css.css': 'github-markdown-css',
+		'pure.css': 'purecss/build/pure.css',
+		'bulma.css': 'bulma',
+		'fox-css.css': 'fox-css/dist/fox-min.css',
+	})) {
+		const file = url.fileURLToPath(import.meta.resolve(identifier))
+		await fsp.writeFile(
+			`./resources/bundled/${outputFilename}`,
+			await fsp.readFile(file, 'utf-8'),
+		)
+	}
+
 	logger.success('Done.')
 }
 
-async function commandNew(/** @type {Config} */ config, /** @type {Options} */ options) {
+export async function commandNew(
+	/** @type {Config} */ config,
+	/** @type {Options} */ options,
+) {
 	const rl = readline.createInterface({
 		input: process.stdin,
 		output: process.stdout,
@@ -405,8 +347,8 @@ async function commandNew(/** @type {Config} */ config, /** @type {Options} */ o
 		'posts/drafts',
 		`${slug}/${slug}.md`,
 	)
-	await fs.mkdir(path.dirname(markdownFile), { recursive: true })
-	await fs.writeFile(
+	await fsp.mkdir(path.dirname(markdownFile), { recursive: true })
+	await fsp.writeFile(
 		markdownFile,
 		`+++
 title = ''
@@ -439,13 +381,13 @@ async function iterateFileQueueByCallback(
 			for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
 				const outputUrl = path.join(config.defaults.outputDir, page.outputUri)
 
-				await fs.mkdir(path.dirname(outputUrl), { recursive: true })
+				await fsp.mkdir(path.dirname(outputUrl), { recursive: true })
 				const result = await handleContentFile(config, options, page)
 				if (result === undefined) {
 				} else if (result === null) {
-					await fs.copyFile(inputFile, outputUrl)
+					await fsp.copyFile(inputFile, outputUrl)
 				} else {
-					await fs.writeFile(outputUrl, result)
+					await fsp.writeFile(outputUrl, result)
 				}
 			}
 
@@ -472,13 +414,13 @@ async function iterateFileQueueByWhileLoop(
 		for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
 			const outputFile = path.join(config.defaults.outputDir, page.outputUri)
 
-			await fs.mkdir(path.dirname(outputFile), { recursive: true })
+			await fsp.mkdir(path.dirname(outputFile), { recursive: true })
 			const result = await handleContentFile(config, options, page)
 			if (result === undefined) {
 			} else if (result === null) {
-				await fs.copyFile(inputFile, outputFile)
+				await fsp.copyFile(inputFile, outputFile)
 			} else {
-				await fs.writeFile(outputFile, result)
+				await fsp.writeFile(outputFile, result)
 			}
 		}
 
@@ -562,7 +504,8 @@ async function handleContentFile(
 			path.join(config.defaults.contentDir, page.inputUri),
 			'utf-8',
 		)
-		const { html, frontmatter } = (() => {
+
+		const { inputHtml, frontmatter } = (() => {
 			let frontmatter = {}
 			markdown = markdown.replace(/^\+\+\+$(.*)\+\+\+$/ms, (_, toml) => {
 				frontmatter = TOML.parse(toml)
@@ -570,7 +513,7 @@ async function handleContentFile(
 			})
 
 			return {
-				html: MarkdownItInstance.render(markdown),
+				inputHtml: MarkdownItInstance.render(markdown),
 				frontmatter: /** @type {Frontmatter} */ (
 					config.validateFrontmatter(
 						config,
@@ -581,69 +524,67 @@ async function handleContentFile(
 			}
 		})()
 
-		const layoutName = frontmatter?.layout ?? ''
-		const vars = {
-			page,
-			title: frontmatter.title,
+		let outputHtml = config.createHtml({
 			env: options.env,
-			body: html,
-			__frontmatter: frontmatter,
-			__date: (() => {
-				// TODO
-				if (!frontmatter.date) {
-					return ''
-				}
+			layout: frontmatter?.layout ?? '',
+			title: frontmatter.title ?? '',
+			head: '',
+			prebody: '',
+			body: inputHtml,
+			params: {
+				__frontmatter: frontmatter,
+				__date: (() => {
+					// TODO
+					if (!frontmatter.date) {
+						return ''
+					}
 
-				const date = new Date(frontmatter.date)
-				return `${date.getFullYear()}-${date.getMonth()}-${date.getDay()}`
-			})(),
-		}
-		const output =
-			(await config?.renderLayout?.(
-				layoutName,
-				vars,
-				template.partials,
-				config,
-				options,
-			)) ?? template.renderLayout(layoutName, vars, template.partials, config, options)
+					const date = new Date(frontmatter.date)
+					return `${date.getFullYear()}-${date.getMonth()}-${date.getDay()}`
+				})(),
+			},
+		})
+		outputHtml = await processHtml(outputHtml)
+		outputHtml = await prettier.format(outputHtml, {
+			filepath: '.html',
+			useTabs: true,
+			tabWidth: 3,
+		})
 
-		return await processHtml(output)
+		return outputHtml
 	} else if (page.inputUri.endsWith('.html') || page.inputUri.endsWith('.xml')) {
-		const meta = await page.tenFile?.Meta?.({ config, options })
-		const head = await page.tenFile?.Head?.({ config, options })
-		const title = head?.title ?? config.defaults?.title ?? ''
-		const body = await fs.readFile(
+		const inputHtml = await fsp.readFile(
 			path.join(config.defaults.contentDir, page.inputUri),
 			'utf-8',
 		)
 
-		const layoutName = meta?.layout
-		const vars = {
-			page,
-			title,
+		const meta = await page.tenFile?.Meta?.({ config, options })
+		const head = await page.tenFile?.Head?.({ config, options })
+
+		let outputHtml = config.createHtml({
 			env: options.env,
-			body,
-			__header_content: head?.content ?? '',
-		}
+			layout: meta?.layout ?? '',
+			title: head?.title ?? config.defaults.title,
+			head: '',
+			prebody: head?.content ?? '',
+			body: inputHtml,
+		})
+		outputHtml = await processHtml(outputHtml)
+		outputHtml = await prettier.format(outputHtml, {
+			filepath: '.html',
+			useTabs: true,
+			tabWidth: 3,
+		})
 
-		const output =
-			(await config?.renderLayout?.(
-				layoutName,
-				vars,
-				template.partials,
-				config,
-				options,
-			)) ?? template.renderLayout(layoutName, vars, template.partials, config, options)
-
-		return await processHtml(output)
+		return outputHtml
 	} else if (page.inputUri.endsWith('.cards.json')) {
-		let json = await fs.readFile(
+		let json = await fsp.readFile(
 			path.join(config.defaults.contentDir, page.inputUri),
 			'utf-8',
 		)
 		let title = `${JSON.parse(json).author}'s flashcards`
 
-		const jsx = await fs.readFile(
+		const jsx = await fsp.readFile(
 			path.join(import.meta.dirname, '../resources/apps/flashcards.jsx'),
 			'utf-8',
 		)
@@ -658,7 +599,6 @@ async function handleContentFile(
 			sourcemap: 'external',
 			write: false,
 		})
-		console.log(result)
 		for (let out of result.outputFiles) {
 			// console.log(out.path, out.contents, out.hash, out.text)
 		}
@@ -725,7 +665,7 @@ async function fsCopyStaticFiles(
 	/** @type {Options} */ options,
 ) {
 	try {
-		await fs.cp(config.defaults.staticDir, config.defaults.outputDir, {
+		await fsp.cp(config.defaults.staticDir, config.defaults.outputDir, {
 			recursive: true,
 		})
 	} catch (err) {
@@ -733,7 +673,7 @@ async function fsCopyStaticFiles(
 	}
 
 	try {
-		await fs.cp(
+		await fsp.cp(
 			path.join(import.meta.dirname, '../resources/static'),
 			config.defaults.outputDir,
 			{
@@ -762,13 +702,21 @@ async function fsPopulateContentMap(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 ) {
-	const pw = new PathScurry(config.defaults.contentDir)
-	for await (const entry of pw) {
-		if (!entry.isFile()) {
+	const walker = new PathScurry(config.defaults.contentDir).iterateSync({
+		filter(entry) {
+			return !utilShouldIgnoreName(entry.name, entry.isDirectory())
+		},
+		walkFilter(entry) {
+			// return "false" if should skip walking directory
+			return !utilShouldIgnoreName(entry.name, entry.isDirectory())
+		},
+	})
+	for (const stat of walker) {
+		if (!stat.isFile()) {
 			continue
 		}
 
-		const inputFile = path.join(entry.parentPath, entry.name)
+		const inputFile = path.join(stat.parentPath, stat.name)
 		for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
 			console.info(
 				`${styleText('gray', `Adding ${ansiEscapes.link(page.outputUri, inputFile)}`)}`,
@@ -784,8 +732,16 @@ async function addAllContentFilesToFileQueue(
 	/** @type {Options} */ options,
 ) {
 	if (!options.positionals[0]) {
-		const pw = new PathScurry(config.defaults.contentDir)
-		for await (const entry of pw) {
+		const walker = new PathScurry(config.defaults.contentDir).iterateSync({
+			filter(entry) {
+				return !utilShouldIgnoreName(entry.name, entry.isDirectory())
+			},
+			walkFilter(entry) {
+				// return "false" if should skip walking directory
+				return !utilShouldIgnoreName(entry.name, entry.isDirectory())
+			},
+		})
+		for (const entry of walker) {
 			if (!entry.isFile()) {
 				continue
 			}
@@ -846,75 +802,141 @@ async function convertInputUriToOutputUri(
 	}
 }
 
-async function utilExtractLayout(
-	/** @type {Config} */ config,
-	/** @type {(Buffer | string | undefined)[]} */ layouts,
-) {
-	for (const layout of layouts) {
-		if (layout === undefined || layout === null) {
-			continue
-		}
+export async function utilLoadConfig(/** @type {string} */ configFile) {
+	const rootDir = path.dirname(configFile)
+	let config = v.getDefaults(getConfigSchema(rootDir))
+	try {
+		config = await import(configFile)
+	} catch (err) {
+		if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
+	}
+	const configSchema = getConfigSchema(rootDir)
+	const result = v.safeParse(configSchema, config)
+	if (result.success) {
+		return result.output
+	} else {
+		logger.error(`Failed to parse config file: "${configFile}"`)
+		console.error(v.flatten(result.issues))
+		process.exit(1)
+	}
 
-		if (layout instanceof Buffer) {
-			return layout.toString()
-		} else if (typeof layout === 'string') {
-			const file1 = path.join(import.meta.dirname, '../resources/layouts', layout)
-			if (await utilFileExists(file1)) {
-				return await fs.readFile(file1, 'utf-8')
-			}
+	function getConfigSchema(/** @type {string} */ rootDir) {
+		const defaults = v.strictObject({
+			title: v.optional(v.string(), 'Website'),
+			rootDir: v.optional(v.string(), rootDir),
+			contentDir: v.optional(v.string(), path.join(rootDir, 'content')),
+			staticDir: v.optional(v.string(), path.join(rootDir, 'static')),
+			outputDir: v.optional(v.string(), path.join(rootDir, 'build')),
+		})
 
-			const file2 = path.join(config.defaults.layoutDir, layout)
-			if (await utilFileExists(file2)) {
-				return await fs.readFile(file2, 'utf-8')
-			}
+		return v.strictObject({
+			defaults: v.optional(defaults, v.getDefaults(defaults)),
+			transformUri: v.optional(
+				v.pipe(
+					v.function(),
+					v.transform((func) => {
+						return (/** @type {string} */ uri) => v.parse(v.string(), func(uri))
+					}),
+				),
+			),
+			validateFrontmatter: v.optional(
+				v.pipe(
+					v.function(),
+					v.transform((func) => {
+						return (
+							/** @type {unknown} */ config,
+							/** @type {string} */ inputFile,
+							/** @type {Frontmatter} */ frontmatter,
+						) =>
+							v.parse(v.record(v.string(), v.any()), func(config, inputFile, frontmatter))
+					}),
+				),
+				() => (/** @type {Record<string, any>} */ frontmatter) => frontmatter,
+			),
+			createHtml: v.optional(
+				v.pipe(
+					v.function(),
+					v.transform((func) => {
+						const html = dedent
+						const defaultHead = html` <meta charset="UTF-8" />
+							<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+							<meta name="referrer" content="same-origin" />
+							<link rel="stylesheet" href="/static/components/overlay.css" />
+							<script defer src="/static/components/overlay.js"></script>
+							<style>
+								*,
+								*::before,
+								*::after {
+									box-sizing: border-box;
+								}
+							</style>`
+						const defaultPrebody = html`<div class="__overlay">
+							<div class="__overlay-inner">
+								<button class="__overlay-button">See Stats</button>
+								<div class="__overlay-stats __overlay-stats-hidden">
+									<h3>Stats</h3>
+								</div>
+							</div>
+						</div>`
 
-			throw new Error(`Failed to find layout "${layout}"`)
-		}
+						return (
+							/** @type {{env: string, layout: string, title: string, head: string, prebody: string, body: string}} */ obj,
+						) => {
+							const prebody =
+								obj.env === 'development' ? defaultPrebody + obj.prebody : obj.prebody
+
+							return v.parse(
+								v.string(),
+								func(Object.assign(obj, { defaultHead, prebody })),
+							)
+						}
+					}),
+				),
+				() => utilCreateHtml,
+			),
+			tenHelpers: v.optional(v.record(v.string(), v.function())),
+		})
 	}
 }
 
 async function utilFileExists(/** @type {string} */ file) {
-	return await fs
+	return await fsp
 		.stat(file)
 		.then(() => true)
 		.catch(() => false)
 }
 
-async function utilOnConfigFileChange(
-	/** @type {Options} */ options,
-	/** @type {() => void | Promise<void>} */ cb,
+function utilShouldIgnoreName(
+	/** @type {string} */ uri,
+	/** @type {boolean} */ isDirectory,
 ) {
-	const configFile = path.join(process.cwd(), options.dir, 'ten.config.js')
-	fsCb.watch(
-		configFile,
-		{},
-		debounce(async (eventType) => {
-			if (eventType === 'change') {
-				await cb()
-			}
-		}, 100),
-	)
+	if (isDirectory) {
+		if (['.git', '.obsidian'].includes(uri)) {
+			return true
+		}
+
+		if (uri.startsWith('_') || uri.endsWith('_')) {
+			return true
+		}
+	}
+
+	return false
 }
 
-function utilServeStatic(
-	/** @type {H3Event<EventHandlerRequest>} */ event,
-	/** @type {string} */ staticDir,
-) {
-	return serveStatic(event, {
-		getContents(uri) {
-			return fs.readFile(path.join(staticDir, uri))
-		},
-		async getMeta(uri) {
-			const stats = await fs.stat(path.join(staticDir, uri)).catch(() => null)
-
-			if (!stats?.isFile()) {
-				return
-			}
-
-			return {
-				size: stats.size,
-				mtime: stats.mtimeMs,
-			}
-		},
-	})
+export function utilCreateHtml({ title, defaultHead, head, prebody, body }) {
+	const html = dedent
+	// prettier-ignore
+	return html`
+		<!doctype html>
+		<html>
+			<head>
+				${defaultHead}
+				${head}
+				<title>${title}</title>
+			</head>
+			<body>
+				${prebody}
+				${body}
+			</body>
+		</html>`
 }
