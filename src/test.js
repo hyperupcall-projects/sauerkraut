@@ -7,7 +7,7 @@ import path from 'node:path'
 import { execa } from 'execa'
 import dedent from 'dedent'
 
-import { commandBuild, logger } from './ten.js'
+import { commandBuild, logger } from './sauerkraut.js'
 
 module.register(url.pathToFileURL(path.join(import.meta.dirname, './test.hot.js')))
 
@@ -189,7 +189,7 @@ suite('.html entrypoint works', async () => {
 	// 	await writeFiles({
 	// 		'./content/index.html': dedent`
 	// 				<p>water</p>\n`,
-	// 		'./content/index.html.ten.js': dedent`
+	// 		'./content/index.html.sk.js': dedent`
 	// 				export function Meta() {
 	// 					return {
 	// 						slug: 'my-slug'
@@ -231,7 +231,7 @@ suite('.html entrypoint works', async () => {
 		await writeFiles({
 			'./content/test/index.html': dedent`
 					<p>Bravo</p>\n`,
-			'./content/test/index.html.ten.js': dedent`
+			'./content/test/index.html.sk.js': dedent`
 					export function Meta() {
 						return {
 							slug: 'my-slug'
@@ -249,7 +249,7 @@ suite('.html entrypoint works', async () => {
 		await writeFiles({
 			'./content/test/test.html': dedent`
 					<p>Bravo</p>\n`,
-			'./content/test/test.html.ten.js': dedent`
+			'./content/test/test.html.sk.js': dedent`
 					export function Meta() {
 						return {
 							slug: 'my-slug'
@@ -280,48 +280,48 @@ suite('content is correctly (not-)?copied', async () => {
 		})
 	})
 
-	test('index.html.ten.js is skipped', async () => {
+	test('index.html.sk.js is skipped', async () => {
 		await writeFiles({
 			'./content/index.html': dedent`
 					<p>water</p>\n`,
-			'./content/index.html.ten.js': dedent`
+			'./content/index.html.sk.js': dedent`
 					export function Meta() {}\n`,
 		})
 		await commandBuild(Ctx)
 
 		await assertFiles({
 			'./build/index.html': /<p>water/,
-			'./build/index.html.ten.js': null,
+			'./build/index.html.sk.js': null,
 		})
 	})
 
-	test('test/test.html.ten.js is skipped', async () => {
+	test('test/test.html.sk.js is skipped', async () => {
 		await writeFiles({
 			'./content/test/test.html': dedent`
 					<p>water</p>\n`,
-			'./content/test/test.html.ten.js': dedent`
+			'./content/test/test.html.sk.js': dedent`
 					export function Meta() {}\n`,
 		})
 		await commandBuild(Ctx)
 
 		await assertFiles({
 			'./build/test/index.html': /<p>water/,
-			'./build/test/index.html.ten.js': null,
+			'./build/test/index.html.sk.js': null,
 		})
 	})
 
-	test('test.html/test.html.ten.js is skipped', async () => {
+	test('test.html/test.html.sk.js is skipped', async () => {
 		await writeFiles({
 			'./content/test.html/test.html': dedent`
 					<p>water</p>\n`,
-			'./content/test.html/test.html.ten.js': dedent`
+			'./content/test.html/test.html.sk.js': dedent`
 					export function Meta() {}\n`,
 		})
 		await commandBuild(Ctx)
 
 		await assertFiles({
 			'./build/test.html': /<p>water/,
-			'./build/test.html.ten.js': null,
+			'./build/test.html.sk.js': null,
 		})
 	})
 
@@ -386,10 +386,10 @@ suite('content is correctly (not-)?copied', async () => {
 	})
 })
 
-suite('ten.js validation checks', async () => {
-	test('index.html.ten.js throws without corresponding index.html', async () => {
+suite('sk.js validation checks', async () => {
+	test('index.html.sk.js throws without corresponding index.html', async () => {
 		await writeFiles({
-			'./content/index.html.ten.js': dedent`
+			'./content/index.html.sk.js': dedent`
 					export function Meta() {}\n`,
 		})
 
@@ -400,7 +400,7 @@ suite('ten.js validation checks', async () => {
 
 	/**
 	 * A file called 'index.html.js' is probably a typo for the
-	 * file 'index.html.ten.js'.
+	 * file 'index.html.sk.js'.
 	 */
 	test('index.something.js throws', async () => {
 		await writeFiles({

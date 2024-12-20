@@ -1,4 +1,3 @@
 node_modules/
-vendor/
-resources/bundled/*
-!resources/bundled/.gitkeep
+static/bundled/*
+!static/bundled/.gitkeep

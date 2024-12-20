@@ -9,28 +9,19 @@ export type Config = {
 
 	transformUri(config: Config, uri: string): string
 	validateFrontmatter(config: Config, uri: string, frontmatter: Frontmatter): Frontmatter
-	createHtml(
-		config: Config,
-		object: {
-			layout: string
-			body: string
-			environment: Environment
-			title: string
-		},
-		params?: Record<string, unknown>,
-	): string | Promise<string>
+	createHtml(config: Config, layoutData: layoutData): string | Promise<string>
 
 	tenHelpers: Record<string, () => string>
 }
 
 export type SkFile = {
-	Meta?({ config: Config, options: Options }): Promise<TenJsMeta>
-	Head?({ config: Config, options: Options }): Promise<TenJsHead>
+	Meta?({ config: Config, options: Options }): Promise<SkJsMeta>
+	Head?({ config: Config, options: Options }): Promise<SkJsHead>
 
 	GenerateSlugMapping?({
 		config: Config,
 		options: Options,
-	}): Promise<TenJsGenerateSlugMapping>
+	}): Promise<SkJsGenerateSlugMapping>
 	GenerateTemplateVariables?(
 		arg0: { config: Config; options: Options },
 		arg1: Record<PropertyKey, unknown>,
@@ -42,6 +33,7 @@ export type Options = {
 	command: 'serve' | 'build' | 'new'
 	clean: boolean
 	watch: boolean
+	bundle: boolean
 	verbose: boolean
 	positionals: string[]
 	env: Environment
@@ -65,17 +57,24 @@ export type Frontmatter = {
 	tags?: string[]
 }
 
-export type TenJsMeta = {
+export type LayoutData = {
+	layout: string
+	body: string
+	environment: Environment
+	title: string
+}
+
+export type SkJsMeta = {
 	slug?: string
 	layout?: string
 }
 
-export type TenJsHead = {
+export type SkJsHead = {
 	title: string
 	content: string
 }
 
-export type TenJsGenerateSlugMapping = Array<{
+export type SkJsGenerateSlugMapping = Array<{
 	slug: string
 	count: number
 }>

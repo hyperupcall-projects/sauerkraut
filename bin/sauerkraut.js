@@ -22,7 +22,10 @@ if (positionals[0] === 'serve' || (positionals[0] === 'build' && values.watch)) 
 		args: process.argv.slice(2),
 		exitCrash: false,
 		watch: [
+			path.join(import.meta.dirname, '../components'),
+			path.join(import.meta.dirname, '../layouts'),
 			path.join(import.meta.dirname, '../src'),
+			path.join(import.meta.dirname, '../utilities'),
 			path.join(process.cwd(), values.dir, 'sauerkraut.config.js'),
 		],
 	})

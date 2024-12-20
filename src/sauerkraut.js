@@ -1,12 +1,10 @@
 #!/usr/bin/env node
-// @ts-check
 import path from 'node:path'
 import util, { styleText } from 'node:util'
 import url from 'node:url'
 import readline from 'node:readline'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
-import http from 'node:http'
 
 import { rollup } from 'rollup'
 import { nodeResolve } from '@rollup/plugin-node-resolve'
@@ -16,20 +14,15 @@ import markdownit from 'markdown-it'
 import { full as markdownEmoji } from 'markdown-it-emoji'
 import Shiki from '@shikijs/markdown-it'
 import watcher from '@parcel/watcher'
-import mime from 'mime-types'
-import ansiEscapes from 'ansi-escapes'
 import * as v from 'valibot'
 import * as cheerio from 'cheerio'
 import { globIterate } from 'glob'
-import { PathScurry } from 'path-scurry'
 import { markdownMermaid } from './markdownIt.js'
-import debounce from 'debounce'
 import esbuild from 'esbuild'
-import dedent from 'dedent'
 import prettier from 'prettier'
-import express from 'express'
-import bodyParser from 'body-parser'
-import { Html } from './template.js'
+import { convertInputUriToOutputUri, utilGetContentDirSyncWalker } from './util.js'
+import { runServer } from './server.js'
+import { NoteLayout } from '#layouts/Note.js'
 
 /**
  * @import { AddressInfo } from 'node:net'
@@ -93,7 +86,7 @@ export async function main() {
 	const helpText = `sauerkraut [--dir|-D=...] <subcommand> [options]
 	Subcommands:
 		build [--clean] [--watch] [glob]
-		serve [glob]
+		serve [--bundle] [glob]
 		new
 
 	Options:
@@ -106,8 +99,9 @@ export async function main() {
 		options: {
 			dir: { type: 'string', default: '.' },
 			clean: { type: 'boolean', default: false },
-			verbose: { type: 'boolean', default: false },
 			watch: { type: 'boolean', default: false },
+			bundle: { type: 'boolean', default: false },
+			verbose: { type: 'boolean', default: false },
 			help: { type: 'boolean', default: false, alias: 'h' },
 		},
 	})
@@ -116,6 +110,7 @@ export async function main() {
 			command: /** @type {Options['command']} */ (positionals[0]),
 			clean: /** @type {boolean} */ (values.clean), // TODO: Boolean not inferred
 			watch: /** @type {boolean} */ (values.watch), // TODO: Boolean not inferred
+			bundle: /** @type {boolean} */ (values.watch), // TODO: Boolean not inferred
 			verbose: /** @type {boolean} */ (values.verbose),
 			positionals: positionals.slice(1) ?? [],
 			env: '',
@@ -148,6 +143,7 @@ export async function main() {
 
 	const configFile = path.join(process.cwd(), options.dir, 'sauerkraut.config.js')
 	let config = await utilLoadConfig(configFile)
+	globalThis.config = config
 	if (options.command === 'serve') {
 		options.env = 'development'
 		await commandServe(config, options)
@@ -165,136 +161,105 @@ export async function commandServe(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 ) {
-	const /** @type {Map<string, string>} */ contentMap = new Map()
-	await fsPopulateContentMap(contentMap, config, options)
+	if (options.bundle) {
+		await esbuild.build({
+			entryPoints: [
+				url.fileURLToPath(import.meta.resolve('mermaid/dist/mermaid.esm.mjs')),
+			],
+			outdir: './onetest2',
+			bundle: true,
+		})
 
-	const app = express()
-	app.use(bodyParser.json())
-	app.use('/static', express.static(config.staticDir))
-	app.use(
-		'/static',
-		express.static(path.join(import.meta.dirname, '../resources/static')),
-	)
-	app.use(async (req, res, next) => {
+		const importFrom = (/** @type {string} */ importId) => ({
+			importId,
+			chunkId: importId.split('/').join('-'),
+			resolveUri: importId,
+		})
+
+		const imports = [
+			importFrom('preact'),
+			importFrom('preact/compat'),
+			importFrom('preact/debug'),
+			importFrom('preact/devtools'),
+			importFrom('preact/hooks'),
+			importFrom('htm'),
+			importFrom('htm/preact'),
+			importFrom('htm/preact/standalone'),
+			importFrom('katex'),
+			...[
+				'auto-render',
+				'mhchem',
+				'copy-tex',
+				'mathtex-script-type',
+				'render-a11y-string',
+			].map((name) => ({
+				importId: `katex/contrib/${name}`,
+				chunkId: `katex-${name}`,
+				resolveUri: `katex/contrib/${name}`,
+			})),
+			importFrom('notie'),
+			// {
+			// 	importId: 'mermaid',
+			// 	chunkId: 'mermaid',
+			// 	resolveUri: 'mermaid/dist/mermaid.mjs',
+			// },
+			{
+				importId: 'jheat.js',
+				chunkId: 'jheat',
+				resolveUri: 'jheat.js/dist/heat.esm.js',
+			},
+		]
+
+		let bundle
 		try {
-			const outputUri = req.url.endsWith('/') ? `${req.url}index.html` : req.url
-			const inputUri = contentMap.get(outputUri)
-			if (!inputUri) {
-				next()
-				return
-			}
-
-			const inputFile = path.join(config.contentDir, inputUri)
-			console.info(
-				`${styleText('magenta', 'Content Request')}: ${req.url}\t\t\t${styleText('gray', `(from ${req.url})`)}`,
-			)
-
-			res.setHeaders(
-				new Headers({
-					'Content-Type': mime.lookup(outputUri) || 'text/html',
-					'Transfer-Encoding': 'chunked',
-					'Cache-Control': 'no-cache',
-					Expires: '0',
-				}),
-			)
-			for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-				const result = await handleContentFile(config, options, page)
-				if (typeof result === 'string') {
-					res.send(result)
-				} else {
-					res.sendFile(path.dirname(page.inputFile))
-				}
-			}
-		} catch (err) {
-			console.error(err)
-		}
-	})
-	app.post('/api/get-content-tree', (req, res) => {
-		const json = {}
-		const walker = utilGetContentDirSyncWalker(config)
-		for (let entry of walker) {
-			const parents = []
-			let /** @type {PathBase | undefined} */ p = entry
-			while (p && p.fullpath() !== path.resolve(config.contentDir)) {
-				parents.push(p)
-				p = p.parent
-			}
-
-			let node = json
-			for (let i = parents.length - 1; i >= 0; --i) {
-				const part = parents[i]
-
-				if (!(part.name in node)) {
-					if (part.isDirectory()) {
-						node[part.name] = {}
-					} else {
-						node[part.name] = null
-					}
-				}
-				node = node[part.name]
-			}
-		}
-
-		res.send(JSON.stringify(json, null, '\t'))
-	})
-	app.post('/api/get-content-list', async (req, res) => {
-		const json = []
-		const walker = utilGetContentDirSyncWalker(config)
-		for (let entry of walker) {
-			if (entry.isDirectory()) {
-				continue
-			}
-
-			const filepath = path.relative(config.contentDir, entry.fullpath())
-			if (filepath !== '') {
-				// TODO tenConfig
-				json.push(await convertInputUriToOutputUri(config, options, filepath, {}))
-			}
-		}
-
-		json.sort()
-		res.send(json)
-	})
-	app.post('/api/read-content-file', (req, res) => {
-		const { uri } = req.body
-
-		try {
-			const filepath = path.join(config.contentDir, contentMap.get(uri))
-			res.sendFile(filepath)
-		} catch (err) {
-			console.error(err)
-			res.send('undefined')
-		}
-	})
-	app.post('/api/write-content-file', async (req, res) => {
-		const { uri, content } = req.body
-
-		const filepath = path.join(config.contentDir, contentMap.get(uri))
-		try {
-			if (content === null || content === undefined) {
-				throw new TypeError('Invalid "content"')
-			}
-			await fsp.writeFile(filepath, content)
-			res.send({
-				success: true,
+			bundle = await rollup({
+				input: Object.fromEntries(
+					imports.map(({ importId, chunkId }) => [chunkId, importId]),
+				),
+				plugins: [nodeResolve()],
 			})
-		} catch (err) {
-			console.error(err)
-			res.send({ success: false })
+			const importMap = {
+				imports: Object.fromEntries(
+					imports.map(({ importId, chunkId }) => [importId, `/components/${chunkId}.js`]),
+				),
+			}
+			await fsp.mkdir('./onetest', { recursive: true })
+			await fsp.rm('./onetest', { recursive: true })
+			await bundle.write({
+				dir: './onetest',
+				format: 'es',
+				manualChunks(id) {
+					if (id.includes('mermaid')) {
+						return 'mermaid'
+					}
+				},
+			})
+			console.log(importMap)
+		} catch (error) {
+			console.error(error)
+			process.exit(1)
 		}
-	})
+		if (bundle) {
+			await bundle.close()
+		}
 
-	const server = http.createServer(app)
-	server.listen(
-		{
-			host: 'localhost',
-			port: 3005,
-		},
-		() => {
-			const info = /** @type {AddressInfo} */ (server.address())
-			logger.info(`Listening at http://localhost:${info.port}`)
-		},
-	)
+		for (const [outputFilename, identifier] of Object.entries({
+			'pico.css': '@picocss/pico',
+			'github-markdown-css.css': 'github-markdown-css',
+			'pure.css': 'purecss/build/pure.css',
+			'bulma.css': 'bulma',
+			'katex.css': 'katex/dist/katex.css',
+			'fox-css.css': 'fox-css/dist/fox-min.css',
+			'modern-normalize.css': 'modern-normalize/modern-normalize.css',
+		})) {
+			const file = url.fileURLToPath(import.meta.resolve(identifier))
+			await fsp.writeFile(
+				`./resources/bundled/${outputFilename}`,
+				await fsp.readFile(file, 'utf-8'),
+			)
+		}
+	}
+	await runServer(config, options)
 }
 
 export async function commandBuild(
@@ -343,50 +308,31 @@ export async function commandBuild(
 	await iterateFileQueueByWhileLoop(fileQueue, config, options)
 	await fsCopyStaticFiles(config, options)
 
-	let bundle
-	try {
-		bundle = await rollup({
-			input: {
-				katex: 'katex',
-				'katex-auto-render': 'katex/contrib/auto-render',
-				'katex-mhchem': 'katex/contrib/mhchem',
-				'katex-copy-tex': 'katex/contrib/copy-tex',
-				'katex-mathtex-script-type': 'katex/contrib/mathtex-script-type',
-				'katex-render-a11y-string': 'katex/contrib/render-a11y-string',
-				notie: 'notie',
-				// mermaid: 'mermaid/dist/mermaid.esm.mjs',
-				jheat: 'jheat.js',
-			},
-			plugins: [nodeResolve()],
-		})
-		await bundle.write({
-			dir: './resources/bundled',
-			format: 'es',
-		})
-	} catch (error) {
-		console.error(error)
-		process.exit(1)
-	}
-	if (bundle) {
-		await bundle.close()
-	}
-
-	for (const [outputFilename, identifier] of Object.entries({
-		'pico.css': '@picocss/pico',
-		'github-markdown-css.css': 'github-markdown-css',
-		'pure.css': 'purecss/build/pure.css',
-		'bulma.css': 'bulma',
-		'katex.css': 'katex/dist/katex.css',
-		'fox-css.css': 'fox-css/dist/fox-min.css',
-	})) {
-		const file = url.fileURLToPath(import.meta.resolve(identifier))
-		await fsp.writeFile(
-			`./resources/bundled/${outputFilename}`,
-			await fsp.readFile(file, 'utf-8'),
-		)
-	}
-
 	logger.success('Done.')
+
+	async function iterateFileQueueByWhileLoop(
+		/** @type {string[]} */ fileQueue,
+		/** @type {Config} */ config,
+		/** @type {Options} */ options,
+	) {
+		while (fileQueue.length > 0) {
+			const inputFile = path.join(config.contentDir, fileQueue[0])
+			for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
+				const outputFile = path.join(config.outputDir, page.outputUri)
+
+				await fsp.mkdir(path.dirname(outputFile), { recursive: true })
+				const result = await handleContentFile(config, options, page)
+				if (result === undefined) {
+				} else if (result === null) {
+					await fsp.copyFile(inputFile, outputFile)
+				} else {
+					await fsp.writeFile(outputFile, result)
+				}
+			}
+
+			fileQueue.splice(0, 1)
+		}
+	}
 }
 
 export async function commandNew(
@@ -438,70 +384,8 @@ draft = true
 	logger.info(`File created at ${markdownFile}`)
 }
 
-async function iterateFileQueueByCallback(
-	/** @type {string[]} */ fileQueue,
-	/** @type {Config} */ config,
-	/** @type {Options} */ options,
-	{ onEmptyFileQueue = /** @type {() => void | Promise<void>} */ () => {} } = {},
-) {
-	let lastCallbackWasEmpty = false
-	await cb()
-
-	async function cb() {
-		if (fileQueue.length > 0) {
-			const inputFile = path.join(config.contentDir, fileQueue[0])
-			for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-				const outputUrl = path.join(config.outputDir, page.outputUri)
-
-				await fsp.mkdir(path.dirname(outputUrl), { recursive: true })
-				const result = await handleContentFile(config, options, page)
-				if (result === undefined) {
-				} else if (result === null) {
-					await fsp.copyFile(inputFile, outputUrl)
-				} else {
-					await fsp.writeFile(outputUrl, result)
-				}
-			}
-
-			fileQueue.splice(0, 1)
-			lastCallbackWasEmpty = false
-		} else {
-			if (!lastCallbackWasEmpty) {
-				await onEmptyFileQueue()
-				lastCallbackWasEmpty = true
-			}
-		}
-
-		setImmediate(cb)
-	}
-}
-
-async function iterateFileQueueByWhileLoop(
-	/** @type {string[]} */ fileQueue,
-	/** @type {Config} */ config,
-	/** @type {Options} */ options,
-) {
-	while (fileQueue.length > 0) {
-		const inputFile = path.join(config.contentDir, fileQueue[0])
-		for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-			const outputFile = path.join(config.outputDir, page.outputUri)
-
-			await fsp.mkdir(path.dirname(outputFile), { recursive: true })
-			const result = await handleContentFile(config, options, page)
-			if (result === undefined) {
-			} else if (result === null) {
-				await fsp.copyFile(inputFile, outputFile)
-			} else {
-				await fsp.writeFile(outputFile, result)
-			}
-		}
-
-		fileQueue.splice(0, 1)
-	}
-}
-
 /** @returns {AsyncGenerator<Page>} */
-async function* yieldPagesFromInputFile(
+export async function* yieldPagesFromInputFile(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 	/** @type {string} */ inputFile,
@@ -552,7 +436,7 @@ async function* yieldPagesFromInputFile(
 	}
 }
 
-async function handleContentFile(
+export async function handleContentFile(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 	/** @type {Page} */ page,
@@ -641,28 +525,7 @@ async function handleContentFile(
 		return outputHtml
 	} else if (page.inputUri.endsWith('.cards.json')) {
 		let json = await fsp.readFile(path.join(config.contentDir, page.inputUri), 'utf-8')
-		let title = `${JSON.parse(json).author}'s flashcards`
 
-		const result = await esbuild.build({
-			entryPoints: [path.join(import.meta.dirname, '../resources/apps/flashcards.jsx')],
-			outfile: path.join(config.outputDir, page.outputUri),
-			bundle: true,
-			jsx: 'transform',
-			jsxFactory: 'h',
-			jsxFragment: 'Fragment',
-			jsxImportSource: 'nano-jsx/esm',
-			sourcemap: 'external',
-			write: false,
-		})
-		for (let out of result.outputFiles) {
-			// console.log(out.path, out.contents, out.hash, out.text)
-		}
-		const html = `
-		<!DOCTYPE html>
-		<html lang="en">
-		<body><div id="root"></div></body>
-		<script>${result.outputFiles[1].text}</script>
-		</html>`
 		return await processHtml(html)
 	} else {
 		return null
@@ -759,27 +622,6 @@ async function fsClearBuildDirectory(
 	}
 }
 
-async function fsPopulateContentMap(
-	/** @type {Map<string, string>} */ contentMap,
-	/** @type {Config} */ config,
-	/** @type {Options} */ options,
-) {
-	const walker = utilGetContentDirSyncWalker(config)
-	for (const stat of walker) {
-		if (!stat.isFile()) {
-			continue
-		}
-
-		const inputFile = path.join(stat.parentPath, stat.name)
-		for await (const page of yieldPagesFromInputFile(config, options, inputFile)) {
-			console.info(
-				`${styleText('gray', `Adding ${ansiEscapes.link(page.outputUri, inputFile)}`)}`,
-			)
-			contentMap.set(page.outputUri, page.inputUri)
-		}
-	}
-}
-
 async function addAllContentFilesToFileQueue(
 	/** @type {string[]} */ fileQueue,
 	/** @type {Config} */ config,
@@ -808,45 +650,6 @@ async function addAllContentFilesToFileQueue(
 	}
 }
 
-async function convertInputUriToOutputUri(
-	/** @type {Config} */ config,
-	/** @type {Options} */ options,
-	/** @type {string} */ inputUri,
-	/** @type {SkFile} */ tenFile,
-) {
-	inputUri = config.transformUri(config, inputUri)
-	inputUri = '/' + inputUri // TODO
-
-	if (inputUri.endsWith('.cards.json')) {
-		inputUri = inputUri.replace(/\.cards\.json$/, '.html')
-	}
-
-	// For an `inputFile` of `/a/b/c.txt`, this extracts `/a`.
-	const pathPart = path.dirname(path.dirname(inputUri))
-
-	// For an `inputFile` of `/a/b/c.txt`, this extracts `b`.
-	const parentDirname = path.basename(path.dirname(inputUri))
-
-	const relPart = await getNewParentDirname()
-
-	if (!inputUri.endsWith('.html') && !inputUri.endsWith('.md')) {
-		return path.join(pathPart, relPart, path.parse(inputUri).base)
-	} else if (path.parse(inputUri).name === parentDirname) {
-		return path.join(pathPart, relPart, 'index.html')
-	} else {
-		return path.join(pathPart, relPart, path.parse(inputUri).name + '.html')
-	}
-
-	async function getNewParentDirname() {
-		const meta = await tenFile?.Meta?.({ config, options })
-		if (meta?.slug) {
-			return meta.slug
-		}
-
-		return path.basename(path.dirname(inputUri))
-	}
-}
-
 export async function utilLoadConfig(/** @type {string} */ configFile) {
 	const rootDir = path.dirname(configFile)
 	let config = v.getDefaults(getConfigSchema(rootDir))
@@ -855,6 +658,7 @@ export async function utilLoadConfig(/** @type {string} */ configFile) {
 	} catch (err) {
 		if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
 	}
+	globalThis.config = config // TODO
 	const configSchema = getConfigSchema(rootDir)
 	const result = v.safeParse(configSchema, config)
 	if (result.success) {
@@ -912,15 +716,15 @@ export async function utilLoadConfig(/** @type {string} */ configFile) {
 					v.function(),
 					v.transform((func) => {
 						/** @type {Config['createHtml']} */
-						return (config, obj) => {
-							return v.parse(v.string(), func(config, obj))
+						return async (config, obj) => {
+							return v.parse(v.string(), await func(config, obj))
 						}
 					}),
 				),
 				() =>
 					/** @type {Config['createHtml']} */
-					function defaultCreateHtml(_config, obj) {
-						return Html(obj)
+					async function defaultCreateHtml(config, obj) {
+						return await NoteLayout(config, obj)
 					},
 			),
 			tenHelpers: v.optional(
@@ -941,33 +745,4 @@ export async function utilLoadConfig(/** @type {string} */ configFile) {
 			),
 		})
 	}
-}
-
-function utilGetContentDirSyncWalker(/** @type {Config} */ config) {
-	return new PathScurry(config.contentDir).iterateSync({
-		filter(entry) {
-			return !utilShouldIgnoreName(entry.name, entry.isDirectory())
-		},
-		walkFilter(entry) {
-			// return "false" if should skip walking directory
-			return !utilShouldIgnoreName(entry.name, entry.isDirectory())
-		},
-	})
-}
-
-function utilShouldIgnoreName(
-	/** @type {string} */ uri,
-	/** @type {boolean} */ isDirectory,
-) {
-	if (isDirectory) {
-		if (['.git', '.obsidian'].includes(uri)) {
-			return true
-		}
-
-		if (uri.startsWith('_') || uri.endsWith('_')) {
-			return true
-		}
-	}
-
-	return false
 }

@@ -1,0 +1,9 @@
+{
+	"include": ["components", "src", "utilities"],
+	"compilerOptions": {
+		"checkJs": true,
+		"target": "es2020",
+		"module": "node16",
+		"strict": true
+	}
+}
