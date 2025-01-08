@@ -141,7 +141,10 @@ export async function main() {
 		process.exit(1)
 	}
 
-	const configFile = path.join(process.cwd(), options.dir, 'sauerkraut.config.js')
+	const configFile = path.join(
+		path.isAbsolute(options.dir) ? options.dir : path.join(process.cwd(), options.dir),
+		'sauerkraut.config.js',
+	)
 	let config = await utilLoadConfig(configFile)
 	globalThis.config = config
 	if (options.command === 'serve') {

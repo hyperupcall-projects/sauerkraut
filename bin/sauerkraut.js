@@ -26,7 +26,10 @@ if (positionals[0] === 'serve' || (positionals[0] === 'build' && values.watch)) 
 			path.join(import.meta.dirname, '../layouts'),
 			path.join(import.meta.dirname, '../src'),
 			path.join(import.meta.dirname, '../utilities'),
-			path.join(process.cwd(), values.dir, 'sauerkraut.config.js'),
+			path.join(
+				path.isAbsolute(values.dir) ? values.dir : path.join(process.cwd(), values.dir),
+				'sauerkraut.config.js',
+			),
 		],
 	})
 		.on('restart', () => {

@@ -123,7 +123,7 @@ export async function runServer(
 	server.listen(
 		{
 			host: 'localhost',
-			port: 3005,
+			port: Number(process.env.PORT) ?? 3005,
 		},
 		() => {
 			const info = /** @type {AddressInfo} */ (server.address())

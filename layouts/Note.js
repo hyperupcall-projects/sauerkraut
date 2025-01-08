@@ -4,7 +4,7 @@ import * as util from '../src/util.js'
 
 import { FileExplorer } from '#components/FileExplorer.js'
 import { MetaTags } from './_.js'
-import { getContentList } from '../src/api.js'
+import { getContentTree } from '../src/api.js'
 import { Overlay } from '#components/Overlay.js'
 
 /**
@@ -24,7 +24,7 @@ export async function NoteLayout(
 	/** @type {LayoutData} */ { layout, body, environment, title },
 ) {
 	const ssg = {
-		filelist: await getContentList(config),
+		fileTree: await getContentTree(config),
 	}
 
 	const features = {
@@ -94,8 +94,9 @@ export async function NoteLayout(
 								import { h, hydrate } from 'preact'
 								import { FileExplorer } from '#components/FileExplorer.js'
 
+								const fileTree = JSON.parse(\`${JSON.stringify(ssg.fileTree)}\`)
 								hydrate(
-									h(() => FileExplorer(${JSON.stringify(ssg.filelist)})),
+									h(() => FileExplorer(fileTree)),
 									document.querySelector('#app-file-explorer'),
 								)
 							</script>
@@ -111,7 +112,7 @@ export async function NoteLayout(
 				<div class="page${features.filetree ? ' with-filetree' : ''}">
 					${features.filetree
 						? html`<div id="app-file-explorer">
-								${renderToString(h(() => FileExplorer(ssg.filelist)))}
+								${renderToString(h(() => FileExplorer(ssg.fileTree)))}
 							</div>`
 						: ``}
 					<main id="content">${body}</main>

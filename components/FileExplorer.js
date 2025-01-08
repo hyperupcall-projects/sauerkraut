@@ -3,27 +3,54 @@ import { html } from 'htm/preact'
 import { RenderingStateContext } from '#utilities/contexts.js'
 
 /**
- * @param {string[]} filelist
+ * @import { FileExplorerTree } from '../src/types.d.ts'
  */
-export function FileExplorer(filelist) {
+
+export function FileExplorer(/** @type {string[]} filelist */ fileTree) {
 	const renderingState = useContext(RenderingStateContext)
-	const [files, setFiles] = useState(filelist)
+	const [tree, setTree] = useState(/** @type {FileExplorerTree} */ (fileTree))
 
 	useEffect(() => {
 		if (renderingState.environment === 'development') {
 			const aborter = new AbortController()
-			fetch('/api/get-content-list', { method: 'POST', signal: aborter.signal })
+			fetch('/api/get-content-tree', { method: 'POST', signal: aborter.signal })
 				.then((res) => res.json())
 				.then((json) => {
-					setFiles(json)
+					setTree(json)
+					console.log(json)
 				})
 			return () => aborter.abort()
 		}
 	}, [])
 
+	let /** @type {any} */ renderthis = []
+	walk(tree.children, 0)
+	function walk(/** @type {any} */ node, /** @type {number} */ ident = 0) {
+		for (const name in node) {
+			if (node[name].type === 'file') {
+				renderthis.push(
+					html`<li>
+						<a style="margin-inline-start: ${ident * 16}px" href="${name}">${name}</a>
+					</li>`,
+				)
+			} else if (node[name].type === 'dir') {
+				const attrs = node[name].attrs ?? {}
+				renderthis.push(
+					html`<li>
+						<a style="margin-inline-start: ${ident * 16}px" href="${name}">${name}/</a>
+					</li>`,
+				)
+
+				if (attrs.hideChildren) {
+					return
+				}
+
+				walk(node[name].children, ident + 1)
+			}
+		}
+	}
+
 	return html`<ul>
-		${files.map((name) => {
-			return html`<li><a href=${name}>${name}</a></li>`
-		})}
+		${renderthis}
 	</ul>`
 }

@@ -2,7 +2,7 @@ import path from 'node:path'
 import { PathScurry } from 'path-scurry'
 
 /**
- * @import { Config } from './types.d.ts'
+ * @import { Config, Options, SkFile } from './types.d.ts'
  */
 
 export async function convertInputUriToOutputUri(

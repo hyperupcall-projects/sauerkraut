@@ -8,14 +8,16 @@ html,
 body {
 	margin: 0;
 	padding: 0;
+	height: 100%;
 }
 
 .page {
 	height: 100%;
+	overflow: hidden;
 
 	&.with-filetree {
 		display: grid;
-		grid-template-columns: auto 1fr;
+		grid-template-columns: 500px 1fr;
 		gap: 10px;
 	}
 }
@@ -28,4 +30,8 @@ body {
 	& .overlay-hidden {
 		display: none;
 	}
+}
+
+#app-file-explorer {
+	overflow-x: auto;
 }

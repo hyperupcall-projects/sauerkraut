@@ -9,37 +9,55 @@ import http from 'node:http'
 import { convertInputUriToOutputUri, utilGetContentDirSyncWalker } from '../src/util.js'
 
 /**
- * @import { Config, SkFile, Options, Page, Frontmatter } from './types.d.ts'
+ * @import { Config, SkFile, Options, Page, Frontmatter, FileExplorerTree, FileExplorerDirAttrs } from './types.d.ts'
  * @import { AddressInfo } from 'node:net'
  * @import { PathBase } from 'path-scurry'
  * @import { PackageJson } from 'type-fest'
  */
 
 export async function getContentTree(/** @type {Config} */ config) {
-	const json = {}
+	const tree = { type: 'dir', children: {} }
 	const walker = utilGetContentDirSyncWalker(config)
 	for (let entry of walker) {
-		const parents = []
-		let /** @type {PathBase | undefined} */ p = entry
-		while (p && p.fullpath() !== path.resolve(config.contentDir)) {
-			parents.push(p)
-			p = p.parent
-		}
+		let subtree = tree
+		const parts = path.relative(config.contentDir, entry.fullpath()).split('/')
+		for (let i = 0; i < parts.length; ++i) {
+			const part = parts[i]
+			if (part === '') continue
 
-		let node = json
-		for (let i = parents.length - 1; i >= 0; --i) {
-			const part = parents[i]
-
-			if (!(part.name in node)) {
-				if (part.isDirectory()) {
-					node[part.name] = {}
-				} else {
-					node[part.name] = null
+			const attrs = { fullpath: parts.slice(0, i + 1).join('/') }
+			if (entry.isDirectory()) {
+				if (['Notes', 'Projects'].includes(part)) {
+					attrs.sortTier = 1
+				} else if (['Journal', 'Resources', 'Flashcards', 'Staging'].includes(part)) {
+					attrs.sortTier = 2
+				}
+				if (
+					['Repositories', 'Journal', 'Dailies', 'Thoughts', 'Archives', 'Data'].includes(
+						part,
+					)
+				) {
+					attrs.hideChildren = true
 				}
 			}
-			node = node[part.name]
+
+			if (i == parts.length - 1) {
+				if (entry.isDirectory()) {
+					subtree.children[part] = { type: 'dir', children: {}, attrs }
+				} else {
+					subtree.children[part] = { type: 'file', attrs }
+				}
+				break
+			}
+
+			if (!(part in subtree.children)) {
+				subtree.children[part] = { type: 'dir', children: {} }
+			}
+			subtree = subtree.children[part]
 		}
 	}
+
+	return tree
 }
 
 export async function getContentList(/** @type {Config} */ config) {

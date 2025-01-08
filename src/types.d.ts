@@ -28,6 +28,23 @@ export type SkFile = {
 	): Promise<Record<PropertyKey, any>>
 }
 
+export type FileExplorerTree = (FileExplorerFile | FileExplorerDirectory)[]
+export type FileExplorerFile = {
+	type: 'file'
+	name: string
+}
+export type FileExplorerDirectory = {
+	type: 'dir'
+	name: string
+	attrs: FileExplorerDirAttrs
+	children: FileExplorerFile | FileExplorerDirectory
+}
+export type FileExplorerDirAttrs = {
+	sortTier: number
+	hideChildren: boolean
+	fullpath: string
+}
+
 export type Options = {
 	dir: string
 	command: 'serve' | 'build' | 'new'
