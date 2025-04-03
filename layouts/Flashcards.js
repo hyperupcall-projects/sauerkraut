@@ -1,4 +1,4 @@
-import Nano, { Helmet, Fragment, Component, render, h } from 'nano-jsx'
+import Nano, { Component, Fragment, h, Helmet, render } from 'nano-jsx'
 
 class Flashcard extends Component {
 	idx = 0

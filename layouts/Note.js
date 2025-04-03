@@ -73,7 +73,8 @@ export async function NoteLayout(
 				${
 					/*features.mermaid
 							? html`<script type="module" src="/static/bundled/mermaid.js"></script>`
-							: ``*/ ''
+							: ``*/
+					''
 				}
 				${features.overlay
 					? html`

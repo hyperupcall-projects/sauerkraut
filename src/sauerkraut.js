@@ -83,7 +83,7 @@ if (
 }
 
 export async function main() {
-	const helpText = `sauerkraut [--dir|-D=...] <subcommand> [options]
+	const helpText = `sauerkraut [--dir=...] <subcommand> [options]
 	Subcommands:
 		build [--clean] [--watch] [glob]
 		serve [--bundle] [glob]

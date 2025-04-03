@@ -1,4 +1,4 @@
-import { test, suite, mock, before, beforeEach, afterEach } from 'node:test'
+import { afterEach, before, beforeEach, mock, suite, test } from 'node:test'
 import assert from 'node:assert/strict'
 import module from 'node:module'
 import fs from 'node:fs/promises'

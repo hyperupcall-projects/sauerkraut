@@ -54,7 +54,10 @@ export async function runServer(
 
 			const inputFile = path.join(config.contentDir, inputUri)
 			console.info(
-				`${styleText('magenta', 'Content Request')}: ${req.url}\t\t\t${styleText('gray', `(from ${req.url})`)}`,
+				`${styleText('magenta', 'Content Request')}: ${req.url}\t\t\t${styleText(
+					'gray',
+					`(from ${req.url})`,
+				)}`,
 			)
 
 			res.setHeaders(
