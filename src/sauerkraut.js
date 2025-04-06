@@ -143,7 +143,7 @@ export async function main() {
 
 	const configFile = path.join(
 		path.isAbsolute(options.dir) ? options.dir : path.join(process.cwd(), options.dir),
-		'sauerkraut.config.js',
+		'sauerkraut.config.ts',
 	)
 	let config = await utilLoadConfig(configFile)
 	globalThis.config = config
@@ -597,7 +597,7 @@ async function fsCopyStaticFiles(
 			recursive: true,
 		})
 	} catch (err) {
-		if (err.code !== 'ENOENT') throw err
+		if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') throw err
 	}
 
 	try {
@@ -609,7 +609,7 @@ async function fsCopyStaticFiles(
 			},
 		)
 	} catch (err) {
-		if (err.code !== 'ENOENT') throw err
+		if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') throw err
 	}
 }
 
@@ -621,7 +621,7 @@ async function fsClearBuildDirectory(
 	try {
 		await fsp.rm(config.outputDir, { recursive: true })
 	} catch (err) {
-		if (err.code !== 'ENOENT') throw err
+		if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') throw err
 	}
 }
 
@@ -659,7 +659,10 @@ export async function utilLoadConfig(/** @type {string} */ configFile) {
 	try {
 		config = await import(configFile)
 	} catch (err) {
-		if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
+		throw err
+		if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ERR_MODULE_NOT_FOUND') {
+			throw err
+		}
 	}
 	globalThis.config = config // TODO
 	const configSchema = getConfigSchema(rootDir)
@@ -685,6 +688,7 @@ export async function utilLoadConfig(/** @type {string} */ configFile) {
 					v.transform((func) => {
 						/** @type {Config['transformUri']} */
 						return (config, uri) => {
+							console.log(uri, v.parse(v.string(), func(config, uri)))
 							return v.parse(v.string(), func(config, uri))
 						}
 					}),
@@ -729,22 +733,6 @@ export async function utilLoadConfig(/** @type {string} */ configFile) {
 					async function defaultCreateHtml(config, obj) {
 						return await NoteLayout(config, obj)
 					},
-			),
-			tenHelpers: v.optional(
-				v.record(
-					v.string(),
-					v.pipe(
-						v.function(),
-						v.transform((func) => {
-							return () => {
-								return v.parse(v.string(), func())
-							}
-						}),
-					),
-				),
-				() => {
-					return {}
-				},
 			),
 		})
 	}

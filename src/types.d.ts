@@ -9,9 +9,7 @@ export type Config = {
 
 	transformUri(config: Config, uri: string): string
 	validateFrontmatter(config: Config, uri: string, frontmatter: Frontmatter): Frontmatter
-	createHtml(config: Config, layoutData: layoutData): string | Promise<string>
-
-	tenHelpers: Record<string, () => string>
+	createHtml(config: Config, layoutData: LayoutData): string | Promise<string>
 }
 
 export type SkFile = {

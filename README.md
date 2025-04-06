@@ -151,7 +151,6 @@ It can export:
 - `transformUri()`
 - `validateFrontmatter()`
 - `createHtml()`
-- `tenHelpers`
 
 ## Page JavaScript Customization
 
