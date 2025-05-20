@@ -8,7 +8,7 @@ import { getContentTree } from '../src/api.js'
 import { Overlay } from '#components/Overlay.js'
 
 /**
- * @import { Config, LayoutData } from '../src/types.d.ts'
+ * @import { Config, LayoutData, SkJsHead } from '../src/types.d.ts'
  *
  * @typedef {Object} Features
  * @property {boolean} katex
@@ -21,8 +21,11 @@ const html = String.raw
 
 export async function NoteLayout(
 	/** @type {Config} */ config,
-	/** @type {LayoutData} */ { layout, body, environment, title },
+	/** @type {SkJsHead} */ head,
+	/** @type {LayoutData} */ layoutData,
 ) {
+	const { layout, body, environment, title } = layoutData
+
 	const ssg = {
 		fileTree: await getContentTree(config),
 	}
@@ -30,8 +33,10 @@ export async function NoteLayout(
 	const features = {
 		katex: true,
 		mermaid: true,
-		filetree: true,
-		overlay: environment === 'development',
+		filetree: false,
+		overlay: false,
+		// filetree: true,
+		// overlay: environment === 'development',
 	}
 
 	return html`<!doctype html>
@@ -42,9 +47,9 @@ export async function NoteLayout(
 					? html`<script type="importmap">
 							{
 								"imports": {
-									"preact": "/static/bundled/preact.js",
-									"preact/hooks": "/static/bundled/preact-hooks.js",
-									"htm/preact": "/static/bundled/htm-preact.js",
+									"preact": "/bundled/preact.js",
+									"preact/hooks": "/bundled/preact-hooks.js",
+									"htm/preact": "/bundled/htm-preact.js",
 									"#components/": "/components/",
 									"#utilities/": "/utilities/"
 								}
@@ -52,27 +57,29 @@ export async function NoteLayout(
 						</script>`
 					: ``}
 				${features.katex
-					? html` <link rel="stylesheet" href="/static/bundled/katex.css" />
-							<script type="module" src="/static/bundled/katex.js"></script>
-							<script type="module" src="/static/bundled/katex-mhchem.js"></script>
-							<script type="module" src="/static/bundled/katex-copy-tex.js"></script>
-							<script type="module">
-								function __initialize_katex() {
-									renderMathInElement(document.body, {
-										options: {
-											strict: false,
-										},
-										delimiters: [
-											{ left: '$$', right: '$$', display: true },
-											{ left: '$', right: '$', display: false },
-										],
-									})
-								}
-							</script>`
+					? html`
+							<link rel="stylesheet" href="/bundled/katex.css" />
+							<script type="module" src="/bundled/katex.js"></script>
+							<script type="module" src="/bundled/katex-mhchem.js"></script>
+							<script type="module" src="/bundled/katex-copy-tex.js"></script>
+							<script type="module" defer>
+								import renderMathInElement from '/bundled/katex-auto-render.js'
+
+								renderMathInElement(document.querySelector('.markdown-body'), {
+									options: {
+										strict: false,
+									},
+									delimiters: [
+										{ left: '$$', right: '$$', display: true },
+										{ left: '$', right: '$', display: false },
+									],
+								})
+							</script>
+						`
 					: ``}
 				${
 					/*features.mermaid
-							? html`<script type="module" src="/static/bundled/mermaid.js"></script>`
+							? html`<script type="module" src="/bundled/mermaid.js"></script>`
 							: ``*/
 					''
 				}
@@ -84,7 +91,7 @@ export async function NoteLayout(
 
 								hydrate(
 									h(() => Overlay()),
-									document.querySelector('#app-overlay'),
+									document.querySelector('.app-overlay'),
 								)
 							</script>
 						`
@@ -95,7 +102,7 @@ export async function NoteLayout(
 								import { h, hydrate } from 'preact'
 								import { FileExplorer } from '#components/FileExplorer.js'
 
-								const fileTree = JSON.parse(\`${JSON.stringify(ssg.fileTree)}\`)
+								const fileTree = ${JSON.stringify(ssg.fileTree)}
 								hydrate(
 									h(() => FileExplorer(fileTree)),
 									document.querySelector('#app-file-explorer'),
@@ -105,19 +112,16 @@ export async function NoteLayout(
 					: ``}
 
 				<title>${title}</title>
+				${await config.createHead(config, layoutData)}
+				<!-- From "*.sk.js" -->
+				${head}
 			</head>
 			<body>
-				${features.overlay
-					? html`<div id="app-overlay">${renderToString(h(() => Overlay()))}</div>`
+				${features.overlay ? html`${renderToString(h(() => Overlay()))}` : ``}
+				${features.filetree
+					? html` ${renderToString(h(() => FileExplorer(ssg.fileTree)))} `
 					: ``}
-				<div class="page${features.filetree ? ' with-filetree' : ''}">
-					${features.filetree
-						? html`<div id="app-file-explorer">
-								${renderToString(h(() => FileExplorer(ssg.fileTree)))}
-							</div>`
-						: ``}
-					<main id="content">${body}</main>
-				</div>
+				${await config.createContent(config, layoutData)}
 			</body>
 		</html>`
 }

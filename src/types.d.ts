@@ -9,7 +9,13 @@ export type Config = {
 
 	transformUri(config: Config, uri: string): string
 	validateFrontmatter(config: Config, uri: string, frontmatter: Frontmatter): Frontmatter
-	createHtml(config: Config, layoutData: LayoutData): string | Promise<string>
+	createHtml(
+		config: Config,
+		head: SkJsHead,
+		layoutData: LayoutData,
+	): string | Promise<string>
+	createHead(config: Config, layoutData: LayoutData): string | Promise<string>
+	createContent(config: Config, layoutData: LayoutData): string | Promise<string>
 }
 
 export type SkFile = {
@@ -73,6 +79,7 @@ export type Frontmatter = {
 }
 
 export type LayoutData = {
+	inputFileType: 'markdown' | 'html'
 	layout: string
 	body: string
 	environment: Environment
@@ -84,10 +91,7 @@ export type SkJsMeta = {
 	layout?: string
 }
 
-export type SkJsHead = {
-	title: string
-	content: string
-}
+export type SkJsHead = string | undefined
 
 export type SkJsGenerateSlugMapping = Array<{
 	slug: string

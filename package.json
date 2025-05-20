@@ -38,7 +38,7 @@
 		"@markwhen/resume": "^1.1.0",
 		"@markwhen/timeline": "^1.3.3",
 		"@parcel/watcher": "^2.5.0",
-		"@rollup/plugin-node-resolve": "^16.0.0",
+		"@rollup/plugin-node-resolve": "^16.0.1",
 		"@shikijs/markdown-it": "^1.24.2",
 		"ansi-escapes": "^7.0.0",
 		"body-parser": "^1.20.3",
@@ -48,6 +48,7 @@
 		"esbuild": "^0.24.0",
 		"express": "^4.21.2",
 		"glob": "^11.0.0",
+		"handlebars": "^4.7.8",
 		"htm": "^3.1.1",
 		"markdown-it": "^14.1.0",
 		"markdown-it-emoji": "^3.0.0",
@@ -58,7 +59,7 @@
 		"preact": "^10.25.3",
 		"preact-render-to-string": "^6.5.12",
 		"prettier": "^3.4.2",
-		"rollup": "^4.28.1",
+		"rollup": "^4.40.2",
 		"smol-toml": "^1.3.1",
 		"valibot": "^0.42.1"
 	},
@@ -83,7 +84,7 @@
 		"wired-elements": "3.0.0-rc.6"
 	},
 	"devDependencies": {
-		"@hyperupcall/scripts-nodejs": "0.2.3",
+		"@hyperupcall/scripts-nodejs": "0.4.0",
 		"@types/node": "^22.14.0",
 		"type-fest": "^4.30.2"
 	},

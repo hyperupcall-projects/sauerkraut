@@ -14,15 +14,9 @@ body {
 .page {
 	height: 100%;
 	overflow: hidden;
-
-	&.with-filetree {
-		display: grid;
-		grid-template-columns: 500px 1fr;
-		gap: 10px;
-	}
 }
 
-#app-overlay {
+.app-overlay {
 	position: fixed;
 	top: 0;
 	right: 0;

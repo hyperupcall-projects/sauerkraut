@@ -28,7 +28,7 @@ export function Overlay() {
 	}, [])
 
 	return html`
-		<${Fragment}>
+		<div class="app-overlay">
 			<button
 				onClick=${() => {
 					const newValue = !shouldHide
@@ -45,7 +45,7 @@ export function Overlay() {
 				<div><button class="__overlay-textarea-submit">Submit</button></div>
 				<div class="__overlay-list"></div>
 			</div>
-		<//>
+		</div>
 	`
 }
 

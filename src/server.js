@@ -36,13 +36,15 @@ export async function runServer(
 
 	const app = express()
 	app.use(bodyParser.json())
-	app.use('/static', express.static(config.staticDir))
-	for (const dirname of ['components', 'layouts', 'static', 'utilities']) {
+	for (const dirname of ['components', 'layouts', 'utilities']) {
 		app.use(
 			`/${dirname}`,
 			express.static(path.join(import.meta.dirname, `../${dirname}`)),
 		)
+		app.use(`/${dirname}`, express.static(`./${dirname}`))
 	}
+	app.use(`/`, express.static(path.join(import.meta.dirname, `../static`)))
+	app.use(`/`, express.static(`./static`))
 	app.use(async (req, res, next) => {
 		try {
 			const outputUri = utilMaybeAppendIndexHtml(req.url)
@@ -63,7 +65,7 @@ export async function runServer(
 			res.setHeaders(
 				new Headers({
 					'Content-Type': mime.lookup(outputUri) || 'text/html',
-					'Transfer-Encoding': 'chunked',
+					'Transfer-Encoding': 'chunked', // TODO
 					'Cache-Control': 'no-cache',
 					Expires: '0',
 				}),
@@ -73,7 +75,7 @@ export async function runServer(
 				if (typeof result === 'string') {
 					res.send(result)
 				} else {
-					res.sendFile(path.dirname(page.inputFile))
+					res.sendFile(page.inputFile)
 				}
 			}
 		} catch (err) {

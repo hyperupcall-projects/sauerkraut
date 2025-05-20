@@ -50,7 +50,9 @@ export function FileExplorer(/** @type {string[]} filelist */ fileTree) {
 		}
 	}
 
-	return html`<ul>
-		${renderthis}
-	</ul>`
+	return html`<div id="app-file-explorer">
+		<ul>
+			${renderthis}
+		</ul>
+	</div>`
 }

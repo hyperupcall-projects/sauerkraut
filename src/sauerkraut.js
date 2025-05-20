@@ -3,7 +3,7 @@ import path from 'node:path'
 import util, { styleText } from 'node:util'
 import url from 'node:url'
 import readline from 'node:readline'
-import fs from 'node:fs'
+import fs, { existsSync } from 'node:fs'
 import fsp from 'node:fs/promises'
 
 import { rollup } from 'rollup'
@@ -20,6 +20,7 @@ import { globIterate } from 'glob'
 import { markdownMermaid } from './markdownIt.js'
 import esbuild from 'esbuild'
 import prettier from 'prettier'
+import handlebars from 'handlebars'
 import { convertInputUriToOutputUri, utilGetContentDirSyncWalker } from './util.js'
 import { runServer } from './server.js'
 import { NoteLayout } from '#layouts/Note.js'
@@ -69,6 +70,7 @@ export const MarkdownItInstance = (() => {
 	return md
 })()
 globalThis.MarkdownItInstance = MarkdownItInstance // TODO
+let HandlebarsInstance = handlebars
 
 if (
 	(function isTopLevel() {
@@ -110,7 +112,7 @@ export async function main() {
 			command: /** @type {Options['command']} */ (positionals[0]),
 			clean: /** @type {boolean} */ (values.clean), // TODO: Boolean not inferred
 			watch: /** @type {boolean} */ (values.watch), // TODO: Boolean not inferred
-			bundle: /** @type {boolean} */ (values.watch), // TODO: Boolean not inferred
+			bundle: /** @type {boolean} */ (values.bundle), // TODO: Boolean not inferred
 			verbose: /** @type {boolean} */ (values.verbose),
 			positionals: positionals.slice(1) ?? [],
 			env: '',
@@ -164,104 +166,6 @@ export async function commandServe(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
 ) {
-	if (options.bundle) {
-		await esbuild.build({
-			entryPoints: [
-				url.fileURLToPath(import.meta.resolve('mermaid/dist/mermaid.esm.mjs')),
-			],
-			outdir: './onetest2',
-			bundle: true,
-		})
-
-		const importFrom = (/** @type {string} */ importId) => ({
-			importId,
-			chunkId: importId.split('/').join('-'),
-			resolveUri: importId,
-		})
-
-		const imports = [
-			importFrom('preact'),
-			importFrom('preact/compat'),
-			importFrom('preact/debug'),
-			importFrom('preact/devtools'),
-			importFrom('preact/hooks'),
-			importFrom('htm'),
-			importFrom('htm/preact'),
-			importFrom('htm/preact/standalone'),
-			importFrom('katex'),
-			...[
-				'auto-render',
-				'mhchem',
-				'copy-tex',
-				'mathtex-script-type',
-				'render-a11y-string',
-			].map((name) => ({
-				importId: `katex/contrib/${name}`,
-				chunkId: `katex-${name}`,
-				resolveUri: `katex/contrib/${name}`,
-			})),
-			importFrom('notie'),
-			// {
-			// 	importId: 'mermaid',
-			// 	chunkId: 'mermaid',
-			// 	resolveUri: 'mermaid/dist/mermaid.mjs',
-			// },
-			{
-				importId: 'jheat.js',
-				chunkId: 'jheat',
-				resolveUri: 'jheat.js/dist/heat.esm.js',
-			},
-		]
-
-		let bundle
-		try {
-			bundle = await rollup({
-				input: Object.fromEntries(
-					imports.map(({ importId, chunkId }) => [chunkId, importId]),
-				),
-				plugins: [nodeResolve()],
-			})
-			const importMap = {
-				imports: Object.fromEntries(
-					imports.map(({ importId, chunkId }) => [importId, `/components/${chunkId}.js`]),
-				),
-			}
-			await fsp.mkdir('./onetest', { recursive: true })
-			await fsp.rm('./onetest', { recursive: true })
-			await bundle.write({
-				dir: './onetest',
-				format: 'es',
-				manualChunks(id) {
-					if (id.includes('mermaid')) {
-						return 'mermaid'
-					}
-				},
-			})
-			console.log(importMap)
-		} catch (error) {
-			console.error(error)
-			process.exit(1)
-		}
-		if (bundle) {
-			await bundle.close()
-		}
-
-		for (const [outputFilename, identifier] of Object.entries({
-			'pico.css': '@picocss/pico',
-			'github-markdown-css.css': 'github-markdown-css',
-			'pure.css': 'purecss/build/pure.css',
-			'bulma.css': 'bulma',
-			'katex.css': 'katex/dist/katex.css',
-			'fox-css.css': 'fox-css/dist/fox-min.css',
-			'modern-normalize.css': 'modern-normalize/modern-normalize.css',
-		})) {
-			const file = url.fileURLToPath(import.meta.resolve(identifier))
-			await fsp.writeFile(
-				`./resources/bundled/${outputFilename}`,
-				await fsp.readFile(file, 'utf-8'),
-			)
-		}
-	}
 	await runServer(config, options)
 }
 
@@ -398,9 +302,12 @@ export async function* yieldPagesFromInputFile(
 		path.dirname(inputFile),
 		path.parse(inputFile).base + '.sk.js',
 	)
-	const skFile = await import(skFilepath).catch((err) => {
-		if (err.code !== 'ERR_MODULE_NOT_FOUND') throw err
-	})
+	let skFile = null
+	if (existsSync(skFilepath)) {
+		// TODO
+		skFile = await import(skFilepath)
+	}
+
 	const outputUri = await convertInputUriToOutputUri(config, options, inputUri, skFile)
 
 	/** @type {Page} */
@@ -479,9 +386,14 @@ export async function handleContentFile(
 			}
 		})()
 
+		const meta = await page.skFile?.Meta?.({ config, options })
+		const head = (await page.skFile?.Head?.({ config, options })) || ''
+
 		let outputHtml = await config.createHtml(
 			config,
+			head,
 			{
+				inputFileType: 'markdown',
 				layout: frontmatter?.layout ?? '',
 				body: inputHtml,
 				environment: options.env,
@@ -504,15 +416,29 @@ export async function handleContentFile(
 
 		return outputHtml
 	} else if (page.inputUri.endsWith('.html') || page.inputUri.endsWith('.xml')) {
-		const inputHtml = await fsp.readFile(
+		let inputHtml = await fsp.readFile(
 			path.join(config.contentDir, page.inputUri),
 			'utf-8',
 		)
 
-		const meta = await page.skFile?.Meta?.({ config, options })
-		const head = await page.skFile?.Head?.({ config, options })
+		if (inputHtml.includes('{{')) {
+			// TODO
+			inputHtml = HandlebarsInstance.compile(inputHtml, {
+				noEscape: true,
+				// strict: true, // TODO
+				// ignoreStandalone: true,
+				// explicitPartialContext: true,
+			})({
+				Page: page,
+				Env: options.env,
+			})
+		}
 
-		let outputHtml = await config.createHtml(config, {
+		const meta = await page.skFile?.Meta?.({ config, options })
+		const head = (await page.skFile?.Head?.({ config, options })) || ''
+
+		let outputHtml = await config.createHtml(config, head, {
+			inputFileType: 'html',
 			layout: meta?.layout ?? '',
 			body: inputHtml,
 			environment: options.env,
@@ -601,13 +527,9 @@ async function fsCopyStaticFiles(
 	}
 
 	try {
-		await fsp.cp(
-			path.join(import.meta.dirname, '../resources/static'),
-			config.outputDir,
-			{
-				recursive: true,
-			},
-		)
+		await fsp.cp(path.join(import.meta.dirname, '../static'), config.outputDir, {
+			recursive: true,
+		})
 	} catch (err) {
 		if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') throw err
 	}
@@ -688,7 +610,6 @@ export async function utilLoadConfig(/** @type {string} */ configFile) {
 					v.transform((func) => {
 						/** @type {Config['transformUri']} */
 						return (config, uri) => {
-							console.log(uri, v.parse(v.string(), func(config, uri)))
 							return v.parse(v.string(), func(config, uri))
 						}
 					}),
@@ -723,15 +644,47 @@ export async function utilLoadConfig(/** @type {string} */ configFile) {
 					v.function(),
 					v.transform((func) => {
 						/** @type {Config['createHtml']} */
-						return async (config, obj) => {
-							return v.parse(v.string(), await func(config, obj))
+						return async (config, head, layoutData) => {
+							return v.parse(v.string(), await func(config, head, layoutData))
 						}
 					}),
 				),
 				() =>
 					/** @type {Config['createHtml']} */
-					async function defaultCreateHtml(config, obj) {
-						return await NoteLayout(config, obj)
+					async function defaultCreateHtml(config, head, layoutData) {
+						return await NoteLayout(config, head, layoutData)
+					},
+			),
+			createHead: v.optional(
+				v.pipe(
+					v.function(),
+					v.transform((func) => {
+						/** @type {Config['createHead']} */
+						return async (config, layoutData) => {
+							return v.parse(v.string(), await func(config, layoutData))
+						}
+					}),
+				),
+				() =>
+					/** @type {Config['createHead']} */
+					async function defaultCreateHead(config, layoutData) {
+						return ''
+					},
+			),
+			createContent: v.optional(
+				v.pipe(
+					v.function(),
+					v.transform((func) => {
+						/** @type {Config['createContent']} */
+						return async (config, layoutData) => {
+							return v.parse(v.string(), await func(config, layoutData))
+						}
+					}),
+				),
+				() =>
+					/** @type {Config['createContent']} */
+					async function defaultCreateContent(config, layoutData) {
+						return `<main id="content">${layoutData.body}</main>`
 					},
 			),
 		})
