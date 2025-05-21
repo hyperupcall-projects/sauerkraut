@@ -65,15 +65,18 @@ export async function NoteLayout(
 							<script type="module" defer>
 								import renderMathInElement from '/bundled/katex-auto-render.js'
 
-								renderMathInElement(document.querySelector('.markdown-body'), {
-									options: {
-										strict: false,
-									},
-									delimiters: [
-										{ left: '$$', right: '$$', display: true },
-										{ left: '$', right: '$', display: false },
-									],
-								})
+								const el = document.querySelector('.markdown-latex')
+								if (el) {
+									renderMathInElement(el, {
+										options: {
+											strict: false,
+										},
+										delimiters: [
+											{ left: '$$', right: '$$', display: true },
+											{ left: '$', right: '$', display: false },
+										],
+									})
+								}
 							</script>
 						`
 					: ``}

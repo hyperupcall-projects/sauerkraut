@@ -582,9 +582,6 @@ export async function utilLoadConfig(/** @type {string} */ configFile) {
 		config = await import(configFile)
 	} catch (err) {
 		throw err
-		if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ERR_MODULE_NOT_FOUND') {
-			throw err
-		}
 	}
 	globalThis.config = config // TODO
 	const configSchema = getConfigSchema(rootDir)

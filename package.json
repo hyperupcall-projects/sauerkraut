@@ -23,9 +23,8 @@
 		"#utilities/*": "./utilities/*"
 	},
 	"exports": {
-		"./template": "./src/template.js"
+		"types": "./src/types.d.ts"
 	},
-	"types": "./src/types.d.ts",
 	"scripts": {
 		"format": "hyperupcall-scripts-nodejs format",
 		"lint": "hyperupcall-scripts-nodejs lint",
