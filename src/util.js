@@ -1,4 +1,5 @@
 import path from 'node:path'
+import fs from 'node:fs/promises'
 import { PathScurry } from 'path-scurry'
 
 /**
@@ -75,4 +76,11 @@ function utilShouldIgnoreName(
 
 export function utilMaybeAppendIndexHtml(/** @type {string} */ uri) {
 	return uri.endsWith('/') ? `${uri}index.html` : uri
+}
+
+export async function utilFileExists(/** @type {string} */ filepath) {
+	return fs
+		.stat(filepath)
+		.then(() => true)
+		.catch((err) => false)
 }

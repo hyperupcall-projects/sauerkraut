@@ -33,6 +33,7 @@ export async function NoteLayout(
 	const features = {
 		katex: true,
 		mermaid: true,
+		railroadDiagrams: true,
 		filetree: false,
 		overlay: false,
 		// filetree: true,
@@ -80,12 +81,15 @@ export async function NoteLayout(
 							</script>
 						`
 					: ``}
-				${
-					/*features.mermaid
-							? html`<script type="module" src="/bundled/mermaid.js"></script>`
-							: ``*/
-					''
-				}
+				${features.mermaid
+					? html`<script type="module">
+							import mermaid from '/bundled/mermaid.js'
+							mermaid.initialize({ startOnLoad: true })
+						</script>`
+					: ``}
+				${features.railroadDiagrams
+					? html`<link rel="stylesheet" href="/bundled/railroad-diagrams.css" />`
+					: ``}
 				${features.overlay
 					? html`
 							<script type="module">

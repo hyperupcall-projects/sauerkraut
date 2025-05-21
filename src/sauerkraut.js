@@ -3,7 +3,7 @@ import path from 'node:path'
 import util, { styleText } from 'node:util'
 import url from 'node:url'
 import readline from 'node:readline'
-import fs, { existsSync } from 'node:fs'
+import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 
 import { rollup } from 'rollup'
@@ -17,11 +17,15 @@ import watcher from '@parcel/watcher'
 import * as v from 'valibot'
 import * as cheerio from 'cheerio'
 import { globIterate } from 'glob'
-import { markdownMermaid } from './markdownIt.js'
+import { markdownMermaid, markdownRailroadDiagrams } from './markdownIt.js'
 import esbuild from 'esbuild'
 import prettier from 'prettier'
 import handlebars from 'handlebars'
-import { convertInputUriToOutputUri, utilGetContentDirSyncWalker } from './util.js'
+import {
+	convertInputUriToOutputUri,
+	utilFileExists,
+	utilGetContentDirSyncWalker,
+} from './util.js'
 import { runServer } from './server.js'
 import { NoteLayout } from '#layouts/Note.js'
 
@@ -52,12 +56,17 @@ const ShikiInstance = await Shiki({
 		'makefile',
 		'tcl',
 		'python',
+		{
+			name: 'railroad',
+			scopeName: 'javascript.railroad',
+		},
 	],
 	themes: {
 		light: 'github-light',
 		dark: 'github-dark',
 	},
 })
+
 export const MarkdownItInstance = (() => {
 	const md = markdownit({
 		html: true,
@@ -67,6 +76,7 @@ export const MarkdownItInstance = (() => {
 	md.use(ShikiInstance)
 	md.use(markdownEmoji)
 	md.use(markdownMermaid)
+	md.use(markdownRailroadDiagrams)
 	return md
 })()
 globalThis.MarkdownItInstance = MarkdownItInstance // TODO
@@ -148,7 +158,10 @@ export async function main() {
 		'sauerkraut.config.ts',
 	)
 	let config = await utilLoadConfig(configFile)
-	globalThis.config = config
+	if (!(await utilFileExists(config.contentDir))) {
+		logger.error(`Failed to find content directory: \"${config.contentDir}\"`)
+	}
+	globalThis.config = config // TODO
 	if (options.command === 'serve') {
 		options.env = 'development'
 		await commandServe(config, options)
@@ -303,7 +316,7 @@ export async function* yieldPagesFromInputFile(
 		path.parse(inputFile).base + '.sk.js',
 	)
 	let skFile = null
-	if (existsSync(skFilepath)) {
+	if (await utilFileExists(skFilepath)) {
 		// TODO
 		skFile = await import(skFilepath)
 	}
@@ -681,7 +694,14 @@ export async function utilLoadConfig(/** @type {string} */ configFile) {
 				() =>
 					/** @type {Config['createContent']} */
 					async function defaultCreateContent(config, layoutData) {
-						return `<main id="content">${layoutData.body}</main>`
+						const html = String.raw
+
+						return layoutData.inputFileType === 'markdown'
+							? html`<main class="markdown-body markdown-latex">
+									<h1>${layoutData.title}</h1>
+									${layoutData.body}
+								</main>`
+							: layoutData.body
 					},
 			),
 		})

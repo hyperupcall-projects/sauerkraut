@@ -9,14 +9,15 @@ import esbuild from 'esbuild'
 
 import { rollup } from 'rollup'
 import { nodeResolve } from '@rollup/plugin-node-resolve'
+import commonjs from '@rollup/plugin-commonjs'
 
 const outDir = url.fileURLToPath(import.meta.resolve('./static/bundled'))
 
-await esbuild.build({
-	entryPoints: [url.fileURLToPath(import.meta.resolve('mermaid/dist/mermaid.esm.mjs'))],
-	outdir: outDir,
-	bundle: true,
-})
+// await esbuild.build({
+// 	entryPoints: [url.fileURLToPath(import.meta.resolve('mermaid/dist/mermaid.esm.mjs'))],
+// 	outdir: outDir,
+// 	bundle: true,
+// })
 
 const importFrom = (/** @type {string} */ importId) => ({
 	importId,
@@ -46,11 +47,8 @@ const imports = [
 		resolveUri: `katex/contrib/${name}`,
 	})),
 	importFrom('notie'),
-	// {
-	// 	importId: 'mermaid',
-	// 	chunkId: 'mermaid',
-	// 	resolveUri: 'mermaid/dist/mermaid.mjs',
-	// },
+	importFrom('railroad-diagrams'),
+	importFrom('mermaid'),
 	{
 		importId: 'jheat.js',
 		chunkId: 'jheat',
@@ -64,14 +62,16 @@ try {
 		input: Object.fromEntries(
 			imports.map(({ importId, chunkId }) => [chunkId, importId]),
 		),
-		plugins: [nodeResolve()],
+		plugins: [commonjs(), nodeResolve()],
 	})
 	const importMap = {
 		imports: Object.fromEntries(
 			imports.map(({ importId, chunkId }) => [importId, `/components/${chunkId}.js`]),
 		),
 	}
-	await fsp.rm(outDir, { recursive: true })
+	await fsp.rm(outDir, { recursive: true }).catch((err) => {
+		if (err.code !== 'ENOENT') throw err
+	})
 	await fsp.mkdir(outDir, { recursive: true })
 	await bundle.write({
 		dir: outDir,
@@ -97,9 +97,37 @@ for (const [outputFilename, identifier] of Object.entries({
 	'pure.css': 'purecss/build/pure.css',
 	'bulma.css': 'bulma',
 	'katex.css': 'katex/dist/katex.css',
+	'railroad-diagrams.css': 'railroad-diagrams/railroad-diagrams.css',
 	'fox-css.css': 'fox-css/dist/fox-min.css',
 	'modern-normalize.css': 'modern-normalize/modern-normalize.css',
 })) {
 	const file = url.fileURLToPath(import.meta.resolve(identifier))
-	await fsp.writeFile(`${outDir}/${outputFilename}`, await fsp.readFile(file, 'utf-8'))
+	await fsp.writeFile(
+		path.join(outDir, outputFilename),
+		await fsp.readFile(file, 'utf-8'),
+	)
+}
+
+{
+	let content = await fsp.readFile(path.join(outDir, 'katex.css'), 'utf-8')
+	content = content.replaceAll('url(fonts', 'url(/fonts/katex')
+	await fsp.writeFile(path.join(outDir, 'katex.css'), content)
+}
+
+{
+	let content = await fsp.readFile(path.join(outDir, 'mermaid-CjUY6Vqv.js'), 'utf-8')
+	content = content.replaceAll(/import '(tty|util|os)';/g, '')
+	await fsp.writeFile(path.join(outDir, 'mermaid-CjUY6Vqv.js'), content)
+}
+
+{
+	let content = await fsp.readFile(path.join(outDir, 'mermaid.js'), 'utf-8')
+	content = content.replaceAll(/import '(tty|util|os)';/g, '')
+	await fsp.writeFile(path.join(outDir, 'mermaid.js'), content)
+}
+
+{
+	let content = await fsp.readFile(path.join(outDir, 'railroad-diagrams.js'), 'utf-8')
+	content = content.replaceAll(/import '(tty|util|os)';/g, '')
+	await fsp.writeFile(path.join(outDir, 'railroad-diagrams.js'), content)
 }

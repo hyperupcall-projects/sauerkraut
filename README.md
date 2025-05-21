@@ -15,6 +15,7 @@ My tool for building websites. See [philosophy](#philosophy) for details.
 - Some interactive apps should have a "freeze" button. to save output, like from
   a command line. SSR or render caches this, and anything with side-effects
   cannot be ran unless unfrozen
+- don't run mermaid on client (https://github.com/mermaid-js/mermaid/issues/3650)
 
 ## Introduction <!-- omit from toc -->
 
