@@ -3,7 +3,7 @@ import { html } from 'htm/preact'
 import { RenderingStateContext } from '#utilities/contexts.js'
 
 /**
- * @import { FileExplorerTree } from '../src/types.d.ts'
+ * @import { FileExplorerTree } from '../src/types.js'
  */
 
 export function FileExplorer(/** @type {string[]} filelist */ fileTree) {

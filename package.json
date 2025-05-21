@@ -14,7 +14,7 @@
 	"license": "MPL-2.0",
 	"private": false,
 	"bin": {
-		"sauerkraut": "./bin/sauerkraut.js"
+		"sauerkraut": "./bin/sauerkraut.ts"
 	},
 	"main": "index.js",
 	"imports": {

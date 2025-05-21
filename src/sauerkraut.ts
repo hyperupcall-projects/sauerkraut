@@ -17,7 +17,7 @@ import watcher from '@parcel/watcher'
 import * as v from 'valibot'
 import * as cheerio from 'cheerio'
 import { globIterate } from 'glob'
-import { markdownMermaid, markdownRailroadDiagrams } from './markdownIt.js'
+import { markdownMermaid, markdownRailroadDiagrams } from './markdownIt.ts'
 import esbuild from 'esbuild'
 import prettier from 'prettier'
 import handlebars from 'handlebars'
@@ -25,9 +25,9 @@ import {
 	convertInputUriToOutputUri,
 	utilFileExists,
 	utilGetContentDirSyncWalker,
-} from './util.js'
-import { runServer } from './server.js'
-import { NoteLayout } from '#layouts/Note.js'
+} from './util.ts'
+import { runServer } from './server.ts'
+import { NoteLayout } from '#layouts/Note.ts'
 
 /**
  * @import { AddressInfo } from 'node:net'
@@ -118,12 +118,12 @@ export async function main() {
 		},
 	})
 	const /** @type {Options} */ options = {
-			dir: /** @type {string} */ (values.dir),
-			command: /** @type {Options['command']} */ (positionals[0]),
-			clean: /** @type {boolean} */ (values.clean), // TODO: Boolean not inferred
-			watch: /** @type {boolean} */ (values.watch), // TODO: Boolean not inferred
-			bundle: /** @type {boolean} */ (values.bundle), // TODO: Boolean not inferred
-			verbose: /** @type {boolean} */ (values.verbose),
+			dir: /** @type {string} */ values.dir,
+			command: /** @type {Options['command']} */ positionals[0],
+			clean: /** @type {boolean} */ values.clean, // TODO: Boolean not inferred
+			watch: /** @type {boolean} */ values.watch, // TODO: Boolean not inferred
+			bundle: /** @type {boolean} */ values.bundle, // TODO: Boolean not inferred
+			verbose: /** @type {boolean} */ values.verbose,
 			positionals: positionals.slice(1) ?? [],
 			env: '',
 		}
@@ -277,8 +277,8 @@ export async function commandNew(
 		})
 	}
 
-	const slug = /** @type {string} */ /** @type {any} */ (
-		await util.promisify(rl.question)(`What is the post slug? `)
+	const slug = /** @type {string} */ /** @type {any} */ await util.promisify(rl.question)(
+		`What is the post slug? `,
 	)
 	const date = new Date()
 		.toISOString()
@@ -389,12 +389,10 @@ export async function handleContentFile(
 
 			return {
 				inputHtml: MarkdownItInstance.render(markdown),
-				frontmatter: /** @type {Frontmatter} */ (
-					config.validateFrontmatter(
-						config,
-						path.join(config.contentDir, page.inputUri),
-						frontmatter,
-					)
+				frontmatter: /** @type {Frontmatter} */ config.validateFrontmatter(
+					config,
+					path.join(config.contentDir, page.inputUri),
+					frontmatter,
 				),
 			}
 		})()
@@ -536,7 +534,7 @@ async function fsCopyStaticFiles(
 			recursive: true,
 		})
 	} catch (err) {
-		if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') throw err
+		if (/** @type {NodeJS.ErrnoException} */ err.code !== 'ENOENT') throw err
 	}
 
 	try {
@@ -544,7 +542,7 @@ async function fsCopyStaticFiles(
 			recursive: true,
 		})
 	} catch (err) {
-		if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') throw err
+		if (/** @type {NodeJS.ErrnoException} */ err.code !== 'ENOENT') throw err
 	}
 }
 
@@ -556,7 +554,7 @@ async function fsClearBuildDirectory(
 	try {
 		await fsp.rm(config.outputDir, { recursive: true })
 	} catch (err) {
-		if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') throw err
+		if (/** @type {NodeJS.ErrnoException} */ err.code !== 'ENOENT') throw err
 	}
 }
 

@@ -11,14 +11,14 @@ import bodyParser from 'body-parser'
 import mime from 'mime-types'
 import ansiEscapes from 'ansi-escapes'
 
-import { utilGetContentDirSyncWalker, utilMaybeAppendIndexHtml } from './util.js'
-import { handleContentFile, logger, yieldPagesFromInputFile } from './sauerkraut.js'
+import { utilGetContentDirSyncWalker, utilMaybeAppendIndexHtml } from './util.ts'
+import { handleContentFile, logger, yieldPagesFromInputFile } from './sauerkraut.ts'
 import {
 	getContentList,
 	getContentTree,
 	readContentFile,
 	writeContentFile,
-} from './api.js'
+} from './api.ts'
 
 /**
  * @import { Config, SkFile, Options, Page, Frontmatter } from './types.d.ts'
@@ -131,7 +131,7 @@ export async function runServer(
 			port: Number(process.env.PORT) || 3005,
 		},
 		() => {
-			const info = /** @type {AddressInfo} */ (server.address())
+			const info = /** @type {AddressInfo} */ server.address()
 			logger.info(`Listening at http://localhost:${info.port}`)
 		},
 	)

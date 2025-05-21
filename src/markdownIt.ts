@@ -36,10 +36,8 @@ export function markdownRailroadDiagrams(md) {
 		const code = token.content.trim()
 
 		if (token.info === 'railroad') {
-			console.log(code)
 			const diagram = { content: '' }
 			eval(`diagram.content = ${code}`)
-			console.log(diagram.content)
 			return diagram.content.toString()
 		}
 

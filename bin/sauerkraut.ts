@@ -18,9 +18,12 @@ if (positionals.length > 1) {
 
 if (positionals[0] === 'serve' || (positionals[0] === 'build' && values.watch)) {
 	nodemon({
-		script: path.join(import.meta.dirname, '../src/sauerkraut.js'),
+		script: path.join(import.meta.dirname, '../src/sauerkraut.ts'),
 		args: process.argv.slice(2),
 		exitCrash: false,
+		execMap: {
+			ts: 'node',
+		},
 		watch: [
 			path.join(import.meta.dirname, '../components'),
 			path.join(import.meta.dirname, '../layouts'),
@@ -28,7 +31,7 @@ if (positionals[0] === 'serve' || (positionals[0] === 'build' && values.watch)) 
 			path.join(import.meta.dirname, '../utilities'),
 			path.join(
 				path.isAbsolute(values.dir) ? values.dir : path.join(process.cwd(), values.dir),
-				'sauerkraut.config.js',
+				'sauerkraut.config.ts',
 			),
 		],
 	})
@@ -40,6 +43,6 @@ if (positionals[0] === 'serve' || (positionals[0] === 'build' && values.watch)) 
 			process.exit(0)
 		})
 } else {
-	const { main } = await import('../src/sauerkraut.js')
+	const { main } = await import('../src/sauerkraut.ts')
 	main()
 }
