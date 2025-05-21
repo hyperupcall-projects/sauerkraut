@@ -7,9 +7,9 @@ import path from 'node:path'
 import { execa } from 'execa'
 import dedent from 'dedent'
 
-import { commandBuild, logger } from './sauerkraut.ts'
+import { commandBuild, logger } from './sauerkraut.js'
 
-module.register(url.pathToFileURL(path.join(import.meta.dirname, './test.hot.ts')))
+module.register(url.pathToFileURL(path.join(import.meta.dirname, './test.hot.js')))
 
 const Filename = new URL(import.meta.url).pathname
 const Dirname = path.dirname(Filename)

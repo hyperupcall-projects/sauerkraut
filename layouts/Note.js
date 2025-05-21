@@ -1,10 +1,10 @@
 import { h } from 'preact'
 import { renderToString } from 'preact-render-to-string'
-import * as util from '../src/util.ts'
+import * as util from '../src/util.js'
 
 import { FileExplorer } from '#components/FileExplorer.js'
-import { MetaTags } from './_.ts'
-import { getContentTree } from '../src/api.ts'
+import { MetaTags } from './_.js'
+import { getContentTree } from '../src/api.js'
 import { Overlay } from '#components/Overlay.js'
 
 /**

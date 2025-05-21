@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import http from 'node:http'
 
-import { convertInputUriToOutputUri, utilGetContentDirSyncWalker } from './util.ts'
+import { convertInputUriToOutputUri, utilGetContentDirSyncWalker } from '../src/util.js'
 
 /**
  * @import { Config, SkFile, Options, Page, Frontmatter, FileExplorerTree, FileExplorerDirAttrs } from './types.d.ts'

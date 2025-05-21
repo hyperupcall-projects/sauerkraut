@@ -4,7 +4,6 @@
 		"checkJs": true,
 		"target": "es2020",
 		"module": "node16",
-		"strict": true,
-		"allowImportingTsExtensions": true
+		"strict": true
 	}
 }
