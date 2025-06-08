@@ -171,7 +171,7 @@ export async function main() {
 		}
 		await commandBuild(config, options)
 	} else if (options.command === 'new') {
-		await commandNew(config, options)
+		await commandNew(config, options, positionals)
 	}
 }
 
@@ -258,7 +258,13 @@ export async function commandBuild(
 export async function commandNew(
 	/** @type {Config} */ config,
 	/** @type {Options} */ options,
+	/** @type {string[]} */ values,
 ) {
+	if (values[1] !== 'post' && values[1] !== 'note') {
+		logger.error("Must pass either 'post' or 'note'")
+		process.exit(1)
+	}
+
 	const rl = readline.createInterface({
 		input: process.stdin,
 		output: process.stdout,
@@ -278,14 +284,25 @@ export async function commandNew(
 	}
 
 	const slug = /** @type {string} */ /** @type {any} */ (
-		await util.promisify(rl.question)(`What is the post slug? `)
+		await util.promisify(rl.question)(`What is the slug? `)
 	)
+
+	let markdownFile = ''
+	if (values[1] === 'post') {
+		markdownFile = path.join(config.contentDir, 'posts/drafts', `${slug}/${slug}.md`)
+	} else if (values[1] === 'note') {
+		markdownFile = path.join(
+			config.contentDir,
+			'notes',
+			`${new Date().getFullYear()}/${slug}.md`,
+		)
+	}
+	await fsp.mkdir(path.dirname(markdownFile), { recursive: true })
+
 	const date = new Date()
 		.toISOString()
 		.replace('T', ' ')
 		.replace(/\.[0-9]+Z$/, 'Z')
-	const markdownFile = path.join(config.contentDir, 'posts/drafts', `${slug}/${slug}.md`)
-	await fsp.mkdir(path.dirname(markdownFile), { recursive: true })
 	await fsp.writeFile(
 		markdownFile,
 		`+++

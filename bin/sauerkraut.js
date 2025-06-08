@@ -12,10 +12,6 @@ const { values, positionals } = util.parseArgs({
 		watch: { type: 'boolean', default: false },
 	},
 })
-if (positionals.length > 1) {
-	throw new Error('Only one positional argument is allowed')
-}
-
 if (positionals[0] === 'serve' || (positionals[0] === 'build' && values.watch)) {
 	nodemon({
 		script: path.join(import.meta.dirname, '../src/sauerkraut.js'),

@@ -11,7 +11,6 @@ let defaultShouldHide = true
 // 			localStorage.getItem('overlay-should-hide') === 'true' ? true : false
 // 	}
 // }
-console.log('start', defaultShouldHide)
 
 export function Overlay() {
 	const [shouldHide, setShouldHide] = useState(defaultShouldHide)
