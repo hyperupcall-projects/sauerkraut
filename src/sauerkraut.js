@@ -18,6 +18,7 @@ import * as v from 'valibot'
 import * as cheerio from 'cheerio'
 import { globIterate } from 'glob'
 import { markdownMermaid, markdownRailroadDiagrams } from './markdownIt.js'
+import markdownItCallouts from './markdownItCallouts.js'
 import esbuild from 'esbuild'
 import prettier from 'prettier'
 import handlebars from 'handlebars'
@@ -77,6 +78,7 @@ export const MarkdownItInstance = (() => {
 	md.use(markdownEmoji)
 	md.use(markdownMermaid)
 	md.use(markdownRailroadDiagrams)
+	md.use(markdownItCallouts)
 	return md
 })()
 globalThis.MarkdownItInstance = MarkdownItInstance // TODO

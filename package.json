@@ -38,7 +38,7 @@
 		"@markwhen/timeline": "^1.4.3",
 		"@parcel/watcher": "^2.5.1",
 		"@rollup/plugin-node-resolve": "^16.0.1",
-		"@shikijs/markdown-it": "^3.6.0",
+		"@shikijs/markdown-it": "^3.13.0",
 		"ansi-escapes": "^7.0.0",
 		"body-parser": "^2.2.0",
 		"cheerio": "^1.1.0",
