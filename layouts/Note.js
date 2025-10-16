@@ -23,6 +23,7 @@ export async function NoteLayout(
 	/** @type {Config} */ config,
 	/** @type {SkJsHead} */ head,
 	/** @type {LayoutData} */ layoutData,
+	params,
 ) {
 	const { layout, body, environment, title } = layoutData
 
@@ -119,7 +120,7 @@ export async function NoteLayout(
 					: ``}
 
 				<title>${title}</title>
-				${await config.createHead(config, layoutData)}
+				${await config.createHead(config, layoutData, params)}
 				<!-- From "*.sk.js" -->
 				${head}
 			</head>
@@ -128,7 +129,7 @@ export async function NoteLayout(
 				${features.filetree
 					? html` ${renderToString(h(() => FileExplorer(ssg.fileTree)))} `
 					: ``}
-				${await config.createContent(config, layoutData)}
+				${await config.createContent(config, layoutData, params)}
 			</body>
 		</html>`
 }

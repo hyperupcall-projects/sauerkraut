@@ -441,7 +441,7 @@ export async function handleContentFile(
 					}
 
 					const date = new Date(frontmatter.date)
-					return `${date.getFullYear()}-${date.getMonth()}-${date.getDay()}`
+					return date
 				})(),
 			},
 		)
@@ -674,15 +674,15 @@ export async function utilLoadConfig(/** @type {string} */ configFile) {
 					v.function(),
 					v.transform((func) => {
 						/** @type {Config['createHtml']} */
-						return async (config, head, layoutData) => {
-							return v.parse(v.string(), await func(config, head, layoutData))
+						return async (config, head, layoutData, params) => {
+							return v.parse(v.string(), await func(config, head, layoutData, params))
 						}
 					}),
 				),
 				() =>
 					/** @type {Config['createHtml']} */
-					async function defaultCreateHtml(config, head, layoutData) {
-						return await NoteLayout(config, head, layoutData)
+					async function defaultCreateHtml(config, head, layoutData, params) {
+						return await NoteLayout(config, head, layoutData, params)
 					},
 			),
 			createHead: v.optional(
@@ -706,8 +706,8 @@ export async function utilLoadConfig(/** @type {string} */ configFile) {
 					v.function(),
 					v.transform((func) => {
 						/** @type {Config['createContent']} */
-						return async (config, layoutData) => {
-							return v.parse(v.string(), await func(config, layoutData))
+						return async (config, layoutData, params) => {
+							return v.parse(v.string(), await func(config, layoutData, params))
 						}
 					}),
 				),

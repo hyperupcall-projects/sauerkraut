@@ -15,7 +15,11 @@ export type Config = {
 		layoutData: LayoutData,
 	): string | Promise<string>
 	createHead(config: Config, layoutData: LayoutData): string | Promise<string>
-	createContent(config: Config, layoutData: LayoutData): string | Promise<string>
+	createContent(
+		config: Config,
+		layoutData: LayoutData,
+		params: Record<PropertyKey, unknown>,
+	): string | Promise<string>
 }
 
 export type SkFile = {
