@@ -13,6 +13,7 @@ export type Config = {
 		config: Config,
 		head: SkJsHead,
 		layoutData: LayoutData,
+		data?: unknown,
 	): string | Promise<string>
 	createHead(config: Config, layoutData: LayoutData): string | Promise<string>
 	createContent(

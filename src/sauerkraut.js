@@ -2,7 +2,7 @@
 import path from 'node:path'
 import util, { styleText } from 'node:util'
 import url from 'node:url'
-import readline from 'node:readline'
+import readline from 'node:readline/promises'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 
@@ -278,17 +278,10 @@ export async function commandNew(
 		process.exit(1)
 	})
 	rl.on('SIGCONT', () => {
-		commandNew(config, options)
+		commandNew(config, options, values)
 	})
-	rl.question[util.promisify.custom] = (/** @type {string} */ query) => {
-		return new Promise((resolve) => {
-			rl.question(query, resolve)
-		})
-	}
 
-	const slug = /** @type {string} */ /** @type {any} */ (
-		await util.promisify(rl.question)(`What is the slug? `)
-	)
+	const slug = await rl.question(`What is the slug? `)
 
 	let markdownFile = ''
 	if (values[1] === 'post') {
@@ -475,7 +468,10 @@ export async function handleContentFile(
 			layout: meta?.layout ?? '',
 			body: inputHtml,
 			environment: options.env,
-			title: head?.title ?? config.title,
+			title: (() => {
+				const titleMatch = head.match(/<title.*?>(.*?)<\/title>/i)
+				return titleMatch ? titleMatch[1].trim() : config.title
+			})(),
 		})
 		outputHtml = await processHtml(outputHtml)
 		outputHtml = await prettier.format(outputHtml, {
@@ -488,7 +484,7 @@ export async function handleContentFile(
 	} else if (page.inputUri.endsWith('.cards.json')) {
 		let json = await fsp.readFile(path.join(config.contentDir, page.inputUri), 'utf-8')
 
-		return await processHtml(html)
+		return await processHtml(json)
 	} else {
 		return null
 	}
